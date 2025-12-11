@@ -127,6 +127,28 @@ a { color: inherit; }
 .entry-note-icon { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; border: 1px solid transparent; }
 .entry-note-label { font-weight: 700; font-size: 16px; }
 .entry-note-sub { font-size: 12px; color: var(--muted); }
+.entry-note-title-area { flex: 1; min-width: 0; }
+.entry-note-title-row { display: flex; align-items: center; gap: 4px; }
+.recurring-icon { font-size: 14px; flex-shrink: 0; }
+.recurring-title-input {
+  flex: 1;
+  font-weight: 700;
+  font-size: 16px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin: -2px -6px;
+  color: var(--text);
+  font-family: inherit;
+  min-width: 0;
+}
+.recurring-title-input:hover { border-color: var(--border); }
+.recurring-title-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: var(--surface);
+}
 .entry-note-close { border: none; background: var(--bg); width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 16px; line-height: 1; color: var(--text); }
 .entry-note-close:hover { background: var(--border); }
 .entry-note-form { display: grid; gap: 12px; }
@@ -590,7 +612,7 @@ a { color: inherit; }
 }
 
 /* Theme toggle */
-.theme-toggle { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 4px; margin-right: 12px; }
+.theme-toggle { background: none; border: 1px solid var(--border); border-radius: px; padding: 4px 10px; cursor: pointer; font-size: 14px; display: flex; align-items: center; gap: 4px; margin-right: 12px; }
 .theme-toggle:hover { background: var(--bg); }
 .theme-icon { display: none; }
 :root .theme-icon.light { display: inline; }

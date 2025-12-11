@@ -5,14 +5,18 @@
       <div class="entry-note-icon" style="background: {{task.block_type.color}}20; border-color: {{task.block_type.color}};">
         {{ icons.render(task.block_type.icon, 20, task.block_type.color) }}
       </div>
-      <div>
-        <div class="entry-note-label">🔄 {{task.title}}</div>
+      <div class="entry-note-title-area">
+        <div class="entry-note-title-row">
+          <span class="recurring-icon">🔄</span>
+          <input type="text" class="recurring-title-input" form="recurring-note-form" name="title" 
+                 value="{{task.title}}" placeholder="Task name..." maxlength="80" required />
+        </div>
         <div class="entry-note-sub">Recurring {{task.pattern}} task</div>
       </div>
     </div>
     <button type="button" class="entry-note-close" data-note-close aria-label="Close">×</button>
   </div>
-  <form class="entry-note-form"
+  <form id="recurring-note-form" class="entry-note-form"
         hx-post="/recurring-tasks/{{task.id}}/note"
         hx-target="#schedule"
         hx-swap="outerHTML">

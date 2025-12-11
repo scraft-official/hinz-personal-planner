@@ -354,6 +354,7 @@ def create_entry(
     week: Annotated[str, Form(...)],
     note: Annotated[str | None, Form(...)] = "",
     plan_id: Annotated[int | None, Form(...)] = None,
+    selected_plans: Annotated[str | None, Form(...)] = None,
     session: Session = Depends(get_session),
 ):
     if day not in DAY_ORDER:
@@ -389,7 +390,8 @@ def create_entry(
     session.add(entry)
     session.commit()
 
-    ctx = _schedule_data(session, week_start)
+    plan_ids = parse_plan_ids(selected_plans)
+    ctx = _schedule_data(session, week_start, plan_ids)
     ctx["request"] = request
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse("partials/schedule.html", ctx)
@@ -404,6 +406,7 @@ def create_quick_task(
     start_time: Annotated[str, Form(...)],
     week: Annotated[str | None, Form(...)] = None,
     plan_id: Annotated[int | None, Form(...)] = None,
+    selected_plans: Annotated[str | None, Form(...)] = None,
     session: Session = Depends(get_session),
 ):
     clean_title = title.strip()
@@ -457,7 +460,8 @@ def create_quick_task(
     session.add(entry)
     session.commit()
 
-    ctx = _schedule_data(session, week_start)
+    plan_ids = parse_plan_ids(selected_plans)
+    ctx = _schedule_data(session, week_start, plan_ids)
     ctx["request"] = request
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse("partials/schedule.html", ctx)
@@ -482,6 +486,7 @@ def save_entry_note(
     request: Request,
     entry_id: int,
     note: str | None = Form(default=""),
+    selected_plans: str | None = Form(default=None),
     session: Session = Depends(get_session),
 ):
     entry = session.get(ScheduleEntry, entry_id)
@@ -494,7 +499,8 @@ def save_entry_note(
     session.commit()
 
     week_start = entry.week_start
-    ctx = _schedule_data(session, week_start)
+    plan_ids = parse_plan_ids(selected_plans)
+    ctx = _schedule_data(session, week_start, plan_ids)
     ctx["request"] = request
     response = templates.TemplateResponse("partials/schedule.html", ctx)
     response.headers["HX-Trigger"] = "entry-note-saved"
@@ -508,6 +514,7 @@ def move_entry(
     day: Annotated[str, Form(...)],
     start_minute: Annotated[int, Form(...)],
     duration_minutes: Annotated[int, Form(...)],
+    selected_plans: Annotated[str | None, Form(...)] = None,
     session: Session = Depends(get_session),
 ):
     if day not in DAY_ORDER:
@@ -528,7 +535,8 @@ def move_entry(
     session.add(entry)
     session.commit()
 
-    ctx = _schedule_data(session, entry.week_start)
+    plan_ids = parse_plan_ids(selected_plans)
+    ctx = _schedule_data(session, entry.week_start, plan_ids)
     ctx["request"] = request
     return templates.TemplateResponse("partials/schedule.html", ctx)
 
@@ -537,6 +545,7 @@ def move_entry(
 def delete_entry(
     request: Request,
     entry_id: int,
+    plans: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ):
     entry = session.get(ScheduleEntry, entry_id)
@@ -544,7 +553,8 @@ def delete_entry(
     if entry:
         session.delete(entry)
         session.commit()
-    ctx = _schedule_data(session, week_start)
+    plan_ids = parse_plan_ids(plans)
+    ctx = _schedule_data(session, week_start, plan_ids)
     ctx["request"] = request
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse("partials/schedule.html", ctx)
@@ -569,6 +579,7 @@ def create_recurring_task(
     note: Annotated[str | None, Form(...)] = None,
     week: Annotated[str | None, Form(...)] = None,
     plan_id: Annotated[int | None, Form(...)] = None,
+    selected_plans: Annotated[str | None, Form(...)] = None,
     session: Session = Depends(get_session),
 ):
     clean_title = title.strip()
@@ -627,7 +638,8 @@ def create_recurring_task(
     except ValueError:
         week_start = get_week_start(date.today())
     
-    ctx = _schedule_data(session, week_start)
+    plan_ids = parse_plan_ids(selected_plans)
+    ctx = _schedule_data(session, week_start, plan_ids)
     ctx["request"] = request
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse("partials/schedule.html", ctx)
@@ -639,6 +651,7 @@ def delete_recurring_task(
     request: Request,
     task_id: int,
     week: str | None = Query(default=None),
+    plans: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ):
     """Delete entire recurring task and all its exceptions."""
@@ -659,7 +672,8 @@ def delete_recurring_task(
     except ValueError:
         week_start = get_week_start(date.today())
     
-    ctx = _schedule_data(session, week_start)
+    plan_ids = parse_plan_ids(plans)
+    ctx = _schedule_data(session, week_start, plan_ids)
     ctx["request"] = request
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse("partials/schedule.html", ctx)
@@ -676,6 +690,7 @@ def create_recurring_exception(
     new_start_minute: Annotated[int | None, Form(...)] = None,
     new_duration_minutes: Annotated[int | None, Form(...)] = None,
     week: Annotated[str | None, Form(...)] = None,
+    selected_plans: Annotated[str | None, Form(...)] = None,
     session: Session = Depends(get_session),
 ):
     """Create an exception for a specific instance of a recurring task."""
@@ -726,7 +741,8 @@ def create_recurring_exception(
     except ValueError:
         week_start = get_week_start(date.today())
     
-    ctx = _schedule_data(session, week_start)
+    plan_ids = parse_plan_ids(selected_plans)
+    ctx = _schedule_data(session, week_start, plan_ids)
     ctx["request"] = request
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse("partials/schedule.html", ctx)
@@ -742,6 +758,7 @@ def move_all_recurring_instances(
     duration_minutes: Annotated[int, Form(...)],
     week: Annotated[str | None, Form(...)] = None,
     clear_exception_date: Annotated[str | None, Form(...)] = None,
+    selected_plans: Annotated[str | None, Form(...)] = None,
     session: Session = Depends(get_session),
 ):
     """Move all instances of a recurring task to a new day/time."""
@@ -785,7 +802,8 @@ def move_all_recurring_instances(
     except ValueError:
         week_start = get_week_start(date.today())
     
-    ctx = _schedule_data(session, week_start)
+    plan_ids = parse_plan_ids(selected_plans)
+    ctx = _schedule_data(session, week_start, plan_ids)
     ctx["request"] = request
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse("partials/schedule.html", ctx)
@@ -811,14 +829,22 @@ def get_recurring_task_note(
 def save_recurring_task_note(
     request: Request,
     task_id: int,
+    title: str | None = Form(default=None),
     note: str | None = Form(default=""),
     week: str | None = Form(default=None),
+    selected_plans: str | None = Form(default=None),
     session: Session = Depends(get_session),
 ):
-    """Save note for recurring task (affects all instances)."""
+    """Save title and note for recurring task (affects all instances)."""
     task = session.get(RecurringTask, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Recurring task not found")
+    
+    # Update title if provided
+    if title:
+        clean_title = title.strip()
+        if clean_title:
+            task.title = clean_title
     
     task.note = (note or "").strip() or None
     session.add(task)
@@ -830,7 +856,8 @@ def save_recurring_task_note(
     except ValueError:
         week_start = get_week_start(date.today())
     
-    ctx = _schedule_data(session, week_start)
+    plan_ids = parse_plan_ids(selected_plans)
+    ctx = _schedule_data(session, week_start, plan_ids)
     ctx["request"] = request
     response = templates.TemplateResponse("partials/schedule.html", ctx)
     response.headers["HX-Trigger"] = "entry-note-saved"

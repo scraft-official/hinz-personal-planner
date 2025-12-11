@@ -1,6 +1,28 @@
 document.addEventListener("DOMContentLoaded", () => {
+  // Check if we need to redirect to apply saved plan selection
+  applySavedPlanSelection();
+  
   initTheme();
   init();
+  
+  // Intercept HTMX requests to add plan filter
+  document.body.addEventListener("htmx:configRequest", (evt) => {
+    // Add plan_ids to requests that target the schedule
+    const target = evt.detail.target;
+    if (target && target.id === "schedule") {
+      const planIds = getSelectedPlanIds();
+      if (planIds.length > 0) {
+        // Add to URL params for GET requests
+        if (evt.detail.verb === "get") {
+          evt.detail.path = addPlanIdsToUrl(evt.detail.path, planIds);
+        } else {
+          // Add to form data for POST requests
+          evt.detail.parameters["selected_plans"] = planIds.join(",");
+        }
+      }
+    }
+  });
+  
   document.body.addEventListener("htmx:afterSwap", (evt) => {
     if (evt.target && evt.target.id === "schedule") {
       setupEntries();
@@ -22,6 +44,72 @@ document.addEventListener("DOMContentLoaded", () => {
     setupRecurringTaskModal();
   });
 });
+
+function applySavedPlanSelection() {
+  // Check localStorage for saved plan selection and apply it before render
+  const savedSelection = localStorage.getItem("selectedPlanIds");
+  if (!savedSelection) return;
+  
+  try {
+    const savedIds = JSON.parse(savedSelection);
+    if (!Array.isArray(savedIds) || savedIds.length === 0) return;
+    
+    // Check if current URL already has the correct plans param
+    const urlParams = new URLSearchParams(window.location.search);
+    const currentPlans = urlParams.get("plans");
+    
+    if (currentPlans) {
+      // URL has plans param, sync checkboxes to match
+      const urlPlanIds = currentPlans.split(",");
+      const viewSelector = document.getElementById("plan-view-selector");
+      if (viewSelector) {
+        const checkboxes = viewSelector.querySelectorAll("input[type='checkbox']");
+        checkboxes.forEach(cb => {
+          cb.checked = urlPlanIds.includes(cb.value);
+        });
+      }
+    } else {
+      // No plans in URL - apply saved selection to checkboxes and redirect
+      const viewSelector = document.getElementById("plan-view-selector");
+      if (viewSelector) {
+        const checkboxes = viewSelector.querySelectorAll("input[type='checkbox']");
+        const availablePlanIds = Array.from(checkboxes).map(cb => cb.value);
+        const validSavedIds = savedIds.filter(id => availablePlanIds.includes(String(id)));
+        
+        if (validSavedIds.length > 0) {
+          // Apply to checkboxes immediately
+          checkboxes.forEach(cb => {
+            cb.checked = validSavedIds.includes(cb.value);
+          });
+          
+          // Redirect with plans param to get correct server render
+          const url = new URL(window.location.href);
+          url.searchParams.set("plans", validSavedIds.join(","));
+          window.history.replaceState({}, "", url.toString());
+          
+          // Refresh schedule with correct plans
+          setTimeout(() => refreshScheduleWithPlans(), 0);
+        }
+      }
+    }
+  } catch (e) {
+    localStorage.removeItem("selectedPlanIds");
+  }
+}
+
+function addPlanIdsToUrl(path, planIds) {
+  const url = new URL(path, window.location.origin);
+  if (planIds.length > 0) {
+    url.searchParams.set("plans", planIds.join(","));
+  }
+  return url.pathname + url.search;
+}
+
+function getScheduleUrl(basePath) {
+  // Helper to add current plan selection to any schedule-related URL
+  const planIds = getSelectedPlanIds();
+  return addPlanIdsToUrl(basePath, planIds);
+}
 
 function init() {
   setupPalette();
@@ -241,6 +329,7 @@ function setupDeleteButtons() {
           formData.append("exception_date", instanceDate);
           formData.append("exception_type", "deleted");
           if (weekStart) formData.append("week", weekStart);
+          formData.append("selected_plans", getSelectedPlanIds().join(","));
 
           fetch(`/recurring-tasks/${recurringTaskId}/exception`, {
             method: "POST",
@@ -256,6 +345,7 @@ function setupDeleteButtons() {
           btn.disabled = true;
           let url = `/recurring-tasks/${recurringTaskId}`;
           if (weekStart) url += `?week=${weekStart}`;
+          url = getScheduleUrl(url);
 
           fetch(url, {
             method: "DELETE",
@@ -271,6 +361,7 @@ function setupDeleteButtons() {
       btn.disabled = true;
       let url = `/entries/${entryId}`;
       if (weekStart) url += `?week_start=${weekStart}`;
+      url = getScheduleUrl(url);
 
       fetch(url, {
         method: "DELETE",
@@ -528,6 +619,7 @@ function onDragEnd() {
 
   const { target, mode } = ds;
   const weekStart = getWeekStart();
+  const selectedPlans = getSelectedPlanIds().join(",");
 
   if (mode === "move" || mode === "resize") {
     if (ds.isRecurring) {
@@ -545,6 +637,7 @@ function onDragEnd() {
           fd.append("new_start_minute", String(target.startMinute));
           fd.append("new_duration_minutes", String(target.duration));
           if (weekStart) fd.append("week", weekStart);
+          fd.append("selected_plans", selectedPlans);
 
           fetch(`/recurring-tasks/${ds.recurringTaskId}/exception`, {
             method: "POST",
@@ -567,6 +660,7 @@ function onDragEnd() {
           if (weekStart) fd.append("week", weekStart);
           // Clear any exception for the instance being dragged so it reflects the new base values
           if (ds.instanceDate) fd.append("clear_exception_date", ds.instanceDate);
+          fd.append("selected_plans", selectedPlans);
 
           fetch(`/recurring-tasks/${ds.recurringTaskId}/move-all`, {
             method: "PATCH",
@@ -588,6 +682,7 @@ function onDragEnd() {
       fd.append("start_minute", String(target.startMinute));
       fd.append("duration_minutes", String(target.duration));
       if (weekStart) fd.append("week", weekStart);
+      fd.append("selected_plans", selectedPlans);
       fetch(`/entries/${ds.id}/move`, {
         method: "POST",
         headers: { "HX-Request": "true" },
@@ -610,6 +705,7 @@ function onDragEnd() {
     fd.append("note", "");
     fd.append("week", weekStart || "");
     if (activePlanId) fd.append("plan_id", activePlanId);
+    fd.append("selected_plans", selectedPlans);
     fetch("/entries", {
       method: "POST",
       headers: { "HX-Request": "true" },
@@ -1269,38 +1365,36 @@ function setupConfirmDialog() {
 /* ─────────────────────────────────────────────────────────
    Plan Controls - View selector and active plan
 ───────────────────────────────────────────────────────── */
+function syncActivePlanOptions() {
+  const viewSelector = document.getElementById("plan-view-selector");
+  const activePlanSelect = document.getElementById("active-plan-select");
+  if (!viewSelector || !activePlanSelect) return;
+  
+  const selectedIds = Array.from(viewSelector.querySelectorAll("input:checked")).map(cb => cb.value);
+  const currentValue = activePlanSelect.value;
+  
+  // Show/hide options based on selected plans in view
+  Array.from(activePlanSelect.options).forEach(opt => {
+    const isSelected = selectedIds.includes(opt.value);
+    opt.hidden = !isSelected;
+    opt.disabled = !isSelected;
+  });
+  
+  // If current value is no longer visible, switch to first visible option
+  if (!selectedIds.includes(currentValue)) {
+    const firstVisible = selectedIds[0];
+    if (firstVisible) {
+      activePlanSelect.value = firstVisible;
+      sessionStorage.setItem("activePlanId", firstVisible);
+    }
+  }
+}
+
 function setupPlanControls() {
   const viewSelector = document.getElementById("plan-view-selector");
   const activePlanSelect = document.getElementById("active-plan-select");
   
   if (viewSelector && !viewSelector.dataset.bound) {
-    // Restore saved plan selection from localStorage
-    const checkboxes = viewSelector.querySelectorAll("input[type='checkbox']");
-    const availablePlanIds = Array.from(checkboxes).map(cb => cb.value);
-    const savedSelection = localStorage.getItem("selectedPlanIds");
-    
-    if (savedSelection) {
-      try {
-        let savedIds = JSON.parse(savedSelection);
-        // Filter out any plans that no longer exist
-        savedIds = savedIds.filter(id => availablePlanIds.includes(id));
-        
-        if (savedIds.length > 0) {
-          // Apply saved selection
-          checkboxes.forEach(cb => {
-            cb.checked = savedIds.includes(cb.value);
-          });
-          // Trigger refresh to load correct plan data
-          refreshScheduleWithPlans();
-        } else {
-          // All saved plans were removed, clear storage and keep defaults
-          localStorage.removeItem("selectedPlanIds");
-        }
-      } catch (e) {
-        localStorage.removeItem("selectedPlanIds");
-      }
-    }
-    
     // Prevent unchecking the last checkbox
     viewSelector.addEventListener("change", (e) => {
       const boxes = viewSelector.querySelectorAll("input[type='checkbox']");
@@ -1316,16 +1410,27 @@ function setupPlanControls() {
       const selectedIds = Array.from(viewSelector.querySelectorAll("input:checked")).map(cb => cb.value);
       localStorage.setItem("selectedPlanIds", JSON.stringify(selectedIds));
       
-      // If only one plan selected, sync the active plan dropdown
+      // Sync the active plan dropdown to only show selected plans
+      syncActivePlanOptions();
+      
+      // If only one plan selected, auto-select it in dropdown
       if (selectedIds.length === 1 && activePlanSelect) {
         activePlanSelect.value = selectedIds[0];
         sessionStorage.setItem("activePlanId", selectedIds[0]);
       }
       
+      // Update URL with new selection
+      const url = new URL(window.location.href);
+      url.searchParams.set("plans", selectedIds.join(","));
+      window.history.replaceState({}, "", url.toString());
+      
       refreshScheduleWithPlans();
     });
     viewSelector.dataset.bound = "true";
   }
+  
+  // Initial sync of active plan options
+  syncActivePlanOptions();
   
   // Store active plan in session storage
   if (activePlanSelect && !activePlanSelect.dataset.bound) {
