@@ -8,6 +8,11 @@
     <div class="palette-controls">
       <button type="button" class="btn quick-task-btn" id="quick-task-btn">+ Quick task</button>
       <button type="button" class="btn recurring-task-btn" id="recurring-task-btn">🔄 Recurring</button>
+      <select id="active-plan-select" class="plan-select">
+        {% for plan in plans %}
+        <option value="{{plan.id}}" {% if loop.first %}selected{% endif %}>{{plan.name}}</option>
+        {% endfor %}
+      </select>
       <input type="text" id="block-search" placeholder="Search blocks..." class="search-input" />
       <select id="duration-select" class="duration-select">
         {% for d in duration_options %}
@@ -38,14 +43,22 @@
           <a href="/" class="week-btn today-btn" title="Go to today">Today</a>
         </div>
       </div>
-      <div class="data-controls">
-        <a href="/export/csv" class="data-btn" title="Export all data">📥 Export</a>
-        <button type="button" class="data-btn" id="import-btn" title="Import data">📤 Import</button>
-        <input type="file" id="import-file" accept=".zip" style="display:none;">
+      <div class="plan-controls">
+        <div class="plan-selector">
+          <span class="plan-label">View:</span>
+          <div class="plan-checkboxes" id="plan-view-selector">
+            {% for plan in plans %}
+            <label class="plan-checkbox" style="--plan-color: {{plan.color}}">
+              <input type="checkbox" value="{{plan.id}}" {% if plan.id in selected_plan_ids %}checked{% endif %}>
+              <span class="plan-chip">{{plan.name}}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
       </div>
     </div>
     <div class="schedule-scroll-container">
-      <div hx-target="#schedule" hx-swap="outerHTML">
+      <div>
         {% include "partials/schedule.html" %}
       </div>
     </div>
@@ -87,6 +100,7 @@
       </div>
       <p class="quick-task-hint">Creates a 1h gray block you can drag or resize later.</p>
       <input type="hidden" name="week" value="{{week_start}}" />
+      <input type="hidden" name="plan_id" id="quick-task-plan-id" value="" />
       <div class="quick-task-actions">
         <button type="button" class="btn ghost" data-close-modal>Cancel</button>
         <button type="submit" class="btn">Add task</button>
@@ -230,6 +244,7 @@
         <input type="text" name="note" maxlength="255" placeholder="Additional details..." />
       </label>
       <input type="hidden" name="week" value="{{week_start}}" />
+      <input type="hidden" name="plan_id" id="recurring-task-plan-id" value="" />
       <div class="recurring-task-actions">
         <button type="button" class="btn ghost" data-recurring-close>Cancel</button>
         <button type="submit" class="btn">Create recurring task</button>
@@ -260,6 +275,24 @@
       <button type="button" class="btn ghost" data-generic-confirm-close>Cancel</button>
       <button type="button" class="btn danger" id="confirm-ok">Delete</button>
     </div>
+  </div>
+</div>
+
+<div class="plans-modal" id="plans-modal" aria-hidden="true">
+  <div class="plans-overlay" data-plans-close></div>
+  <div class="plans-card" role="dialog" aria-modal="true" aria-labelledby="plans-title">
+    <div class="plans-header">
+      <h2 id="plans-title">Manage Plans</h2>
+      <button type="button" class="plans-close" data-plans-close aria-label="Close">×</button>
+    </div>
+    <div class="plans-content" id="plans-list" hx-get="/plans" hx-trigger="plans-changed from:body">
+      Loading...
+    </div>
+    <form class="plans-add-form" id="plans-add-form" hx-post="/plans" hx-target="#plans-list" hx-swap="innerHTML">
+      <input type="text" name="name" placeholder="New plan name..." required maxlength="50" />
+      <input type="color" name="color" value="#0ea5e9" />
+      <button type="submit" class="btn">+ Add</button>
+    </form>
   </div>
 </div>
 {% endblock %}

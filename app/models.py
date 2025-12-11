@@ -1,6 +1,17 @@
 from datetime import datetime, date
-from typing import Optional
+from typing import Optional, List
 from sqlmodel import SQLModel, Field, Relationship
+
+
+class Plan(SQLModel, table=True):
+    """A plan represents a separate schedule (e.g., Work, Family, Personal)."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(max_length=50)
+    color: str = Field(default="#0ea5e9", max_length=16)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    entries: List["ScheduleEntry"] = Relationship(back_populates="plan")
+    recurring_tasks: List["RecurringTask"] = Relationship(back_populates="plan")
 
 
 class BlockType(SQLModel, table=True):
@@ -12,8 +23,8 @@ class BlockType(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     is_quick_template: bool = Field(default=False)
 
-    entries: list["ScheduleEntry"] = Relationship(back_populates="block_type")
-    recurring_tasks: list["RecurringTask"] = Relationship(back_populates="block_type")
+    entries: List["ScheduleEntry"] = Relationship(back_populates="block_type")
+    recurring_tasks: List["RecurringTask"] = Relationship(back_populates="block_type")
 
 
 class ScheduleEntry(SQLModel, table=True):
@@ -24,11 +35,13 @@ class ScheduleEntry(SQLModel, table=True):
     duration_minutes: int = Field(default=60, ge=15, le=24 * 60)
     note: Optional[str] = Field(default=None, max_length=255)
     block_type_id: int = Field(foreign_key="blocktype.id")
+    plan_id: Optional[int] = Field(default=None, foreign_key="plan.id", index=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     custom_title: Optional[str] = Field(default=None, max_length=80)
     is_quick: bool = Field(default=False)
 
     block_type: Optional[BlockType] = Relationship(back_populates="entries")
+    plan: Optional[Plan] = Relationship(back_populates="entries")
 
 
 class RecurringTask(SQLModel, table=True):
@@ -37,6 +50,7 @@ class RecurringTask(SQLModel, table=True):
     title: str = Field(max_length=80)
     note: Optional[str] = Field(default=None, max_length=255)
     block_type_id: int = Field(foreign_key="blocktype.id")
+    plan_id: Optional[int] = Field(default=None, foreign_key="plan.id", index=True)
     
     # Recurrence pattern: "daily", "weekly", "monthly"
     pattern: str = Field(default="weekly", max_length=16)
@@ -57,7 +71,8 @@ class RecurringTask(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     
     block_type: Optional[BlockType] = Relationship(back_populates="recurring_tasks")
-    exceptions: list["RecurringException"] = Relationship(back_populates="recurring_task")
+    plan: Optional[Plan] = Relationship(back_populates="recurring_tasks")
+    exceptions: List["RecurringException"] = Relationship(back_populates="recurring_task")
 
 
 class RecurringException(SQLModel, table=True):
