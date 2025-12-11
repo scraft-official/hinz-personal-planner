@@ -368,30 +368,24 @@ a { color: inherit; }
   .palette-card { padding: 8px; }
   .palette-name { font-size: 12px; }
   
-  /* Schedule wrapper - horizontal scroll */
-  .schedule-wrapper { 
-    grid-template-columns: 50px 1fr; 
+  /* Planner panel - full width scrollable */
+  .planner-panel {
+    padding: 12px;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
-  .time-col { padding-top: 36px; }
-  .time-label { font-size: 9px; margin-left: 0; padding-right: 4px; }
+  
+  /* Schedule wrapper - keep desktop sizing, scroll horizontally */
+  .schedule-wrapper { 
+    grid-template-columns: 60px 1fr; 
+    min-width: 700px; /* Force minimum width to keep blocks readable */
+  }
+  .time-col { padding-top: 42px; }
+  .time-label { font-size: 10px; }
   .periods { display: none; }
   
-  /* Grid columns - minimum width for readability */
-  .grid-cols { min-width: 560px; }
-  .grid-header { padding: 2px 0; }
-  .day-head { padding: 4px 2px; }
-  .day-name { font-size: 11px; }
-  .day-date { font-size: 10px; }
-  
-  /* Entries - touch friendly */
-  .entry { padding: 3px 4px; gap: 4px; }
-  .entry-bar { width: 3px; }
-  .entry-title { font-size: 10px; }
-  .entry-meta { font-size: 9px; }
-  .entry-delete-btn { font-size: 16px; padding: 4px; min-width: 24px; min-height: 24px; }
-  .entry-resize-handle { height: 12px; opacity: 0.7; }
+  /* Grid columns - keep desktop width */
+  .grid-cols { min-width: 640px; }
   
   /* Week navigation */
   .week-nav { flex-wrap: wrap; gap: 6px; }
@@ -447,15 +441,14 @@ a { color: inherit; }
   .panel-header { font-size: 14px; margin-bottom: 8px; }
   .search-input, .duration-select { padding: 10px; font-size: 14px; }
   
-  .schedule-wrapper { grid-template-columns: 40px 1fr; }
-  .time-label { font-size: 8px; }
-  .grid-cols { min-width: 480px; }
-  
-  .day-name { font-size: 10px; }
-  .day-date { font-size: 9px; }
-  
-  .entry-title { font-size: 9px; }
-  .entry-delete-btn { font-size: 18px; min-width: 28px; min-height: 28px; }
+  /* Keep schedule at readable size, scroll horizontally */
+  .planner-panel { padding: 10px; }
+  .schedule-wrapper { 
+    grid-template-columns: 50px 1fr;
+    min-width: 600px;
+  }
+  .time-label { font-size: 9px; }
+  .grid-cols { min-width: 550px; }
   
   .week-label { font-size: 11px; min-width: 130px; }
   .week-btn { padding: 8px; font-size: 11px; }
