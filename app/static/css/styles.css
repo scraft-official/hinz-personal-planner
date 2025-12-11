@@ -36,12 +36,16 @@
   --input-bg: #0f172a;
 }
 
-* { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; -webkit-tap-highlight-color: transparent; overflow-x: hidden; }
 body {
   margin: 0;
   font-family: "Manrope", "Segoe UI", sans-serif;
   background: var(--bg);
   color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+  overflow-x: hidden;
 }
 
 a { color: inherit; }
@@ -129,7 +133,10 @@ a { color: inherit; }
 .entry-note-form label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); }
 .entry-note-form textarea { border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 14px; resize: vertical; min-height: 140px; font-family: inherit; color: var(--text); background: var(--input-bg); }
 .entry-note-form textarea:focus { outline: 2px solid var(--accent); border-color: transparent; }
-.entry-note-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.entry-note-actions { display: flex; justify-content: space-between; gap: 10px; }
+.entry-note-actions-right { display: flex; gap: 10px; }
+.btn.danger { color: #ef4444; border-color: #ef4444; }
+.btn.danger:hover { background: #ef4444; color: #fff; }
 
 /* Add block modal */
 .add-block-btn { margin-top: 12px; width: 100%; }
@@ -180,10 +187,11 @@ a { color: inherit; }
 .recurring-confirm-actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
 
 /* Week navigation */
+.week-nav-wrapper { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .week-nav { display: flex; align-items: center; gap: 8px; }
 .week-btn { padding: 6px 12px; border: 1px solid var(--border); background: var(--panel); border-radius: 6px; cursor: pointer; font-size: 13px; transition: background 0.15s; color: var(--text); }
 .week-btn:hover { background: var(--bg); }
-.week-label { font-weight: 700; font-size: 14px; min-width: 200px; text-align: center; }
+.week-label { font-weight: 700; font-size: 14px; text-align: center; }
 .today-btn { padding: 6px 12px; border: 1px solid var(--accent); background: var(--panel); color: var(--accent); border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; }
 .today-btn:hover { background: var(--accent); color: #fff; }
 
@@ -195,6 +203,7 @@ a { color: inherit; }
 .dot.act { background: var(--act); border: 1px dashed #f0a34a; }
 .dot.night { background: var(--night); border: 1px dashed #b08add; }
 
+.schedule-scroll-container { overflow: visible; }
 .schedule-wrapper { display: grid; grid-template-columns: 120px 1fr; gap: 0; }
 .time-col { border-right: 1px solid var(--border); padding-top: 42px; position: relative; }
 .time-label { font-size: 11px; color: var(--muted); border-bottom: 1px dashed #d8e0ea; padding-right: 8px; text-align: right; display: flex; align-items: flex-start; justify-content: flex-end; padding-top: 0; margin-left: 54px; }
@@ -330,7 +339,223 @@ a { color: inherit; }
 
 @media (max-width: 1100px) {
   .layout { grid-template-columns: 1fr; }
-  .palette-panel { order: 2; }
+  .palette-panel { order: 2; height: auto; position: static; max-height: none; }
+  .palette-scroll { max-height: 200px; }
+}
+
+/* Tablet styles */
+@media (max-width: 900px) {
+  .app-shell { padding: 16px; }
+  .brand { font-size: 20px; }
+  .planner-header { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .legends { flex-wrap: wrap; gap: 10px; }
+  .week-nav-wrapper { width: 100%; align-items: flex-start; }
+  .week-label { font-size: 13px; }
+  .form-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* Mobile styles */
+@media (max-width: 768px) {
+  .app-shell { padding: 8px; overflow-x: hidden; }
+  .app-header { flex-wrap: wrap; gap: 8px; }
+  .brand { font-size: 18px; }
+  
+  /* Constrain layout width */
+  .layout { max-width: 100vw; overflow: hidden; }
+  
+  /* Palette panel - collapsible on mobile */
+  .palette-panel { 
+    padding: 12px; 
+    order: 2;
+  }
+  .palette-controls { gap: 8px; margin-bottom: 10px; }
+  .palette-controls .btn { padding: 10px 12px; font-size: 13px; }
+  .quick-task-btn, .recurring-task-btn { width: 100%; }
+  .palette-scroll { max-height: 150px; }
+  .palette-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .palette-card { padding: 8px; }
+  .palette-name { font-size: 12px; }
+  
+  /* Planner panel - header stays fixed, only grid scrolls */
+  .planner-panel { padding: 10px; overflow: hidden; }
+  .planner-header { flex-direction: column; align-items: stretch; gap: 10px; }
+  .legends { justify-content: center; }
+  .week-nav-wrapper { align-items: center; }
+  .week-label { font-size: 14px; font-weight: 700; }
+  .week-nav { justify-content: center; }
+  
+  /* Scrollable schedule container */
+  .schedule-scroll-container {
+    overflow-x: auto;
+    overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
+    margin: 0;
+    padding-bottom: 10px;
+  }
+  
+  /* Schedule wrapper - wider columns for readability */
+  .schedule-wrapper { 
+    grid-template-columns: 50px 1fr; 
+    min-width: 700px;
+    width: max-content;
+  }
+  .time-col { 
+    padding-top: 42px; 
+    position: sticky;
+    left: 0;
+    z-index: 10;
+    background: var(--panel);
+  }
+  .time-label { font-size: 9px; height: 48px; margin-left: 0; padding-right: 6px; }
+  .periods { display: none; }
+  
+  /* Grid columns - wider (1.5x) */
+  .grid-cols { min-width: 650px; }
+  .grid-header, .grid-body { grid-template-columns: repeat(7, minmax(90px, 1fr)); }
+  
+  /* Hide delete button on mobile - use note modal to delete */
+  .entry-delete-btn { display: none !important; }
+  
+  /* Week navigation */
+  .week-btn { padding: 8px 10px; font-size: 12px; }
+  .today-btn { padding: 8px 12px; }
+  
+  /* Legends */
+  .legends { gap: 8px; }
+  .legend { font-size: 11px; gap: 4px; }
+  .dot { width: 10px; height: 10px; }
+  
+  /* Forms */
+  .form-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  
+  /* Modals - full width on mobile */
+  .quick-task-card,
+  .entry-note-shell,
+  .add-block-card,
+  .recurring-task-card,
+  .recurring-confirm-card { 
+    width: calc(100vw - 24px); 
+    max-width: none;
+    margin: 12px;
+    padding: 16px;
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
+  }
+  .quick-task-header h2,
+  .add-block-header h2,
+  .recurring-task-header h2 { font-size: 18px; }
+  .quick-task-grid,
+  .recurring-task-grid { grid-template-columns: 1fr; gap: 10px; }
+  .icon-options { grid-template-columns: repeat(3, 1fr); gap: 8px; max-height: 150px; overflow-y: auto; }
+  .icon-option { padding: 8px 4px; }
+  .icon-option .icon-label { font-size: 9px; }
+  
+  /* Buttons - larger touch targets */
+  .btn { padding: 12px 16px; font-size: 14px; min-height: 44px; }
+  .btn.ghost { min-height: 44px; }
+  
+  /* Header actions */
+  .header-actions { display: flex; gap: 8px; }
+  .theme-toggle { padding: 8px 12px; }
+}
+
+/* Small mobile styles */
+@media (max-width: 480px) {
+  .app-shell { padding: 6px; overflow-x: hidden; }
+  .brand { font-size: 16px; }
+  
+  .palette-panel { padding: 10px; }
+  .panel-header { font-size: 14px; margin-bottom: 8px; }
+  .search-input, .duration-select { padding: 10px; font-size: 14px; }
+  
+  /* Keep schedule at readable size, scroll horizontally */
+  .planner-panel { padding: 8px; overflow: hidden; }
+  .schedule-scroll-container { margin: 0; padding-bottom: 8px; }
+  .schedule-wrapper { 
+    grid-template-columns: 45px 1fr;
+    min-width: 650px;
+    width: max-content;
+  }
+  .time-col {
+    position: sticky;
+    left: 0;
+    z-index: 10;
+    background: var(--panel);
+  }
+  .time-label { font-size: 8px; height: 48px; margin-left: 0; padding-right: 4px; }
+  .grid-cols { min-width: 605px; }
+  .grid-header, .grid-body { grid-template-columns: repeat(7, minmax(85px, 1fr)); }
+  
+  .week-label { font-size: 13px; }
+  .week-btn { padding: 8px; font-size: 11px; }
+  
+  /* Modals */
+  .quick-task-card,
+  .entry-note-shell,
+  .add-block-card,
+  .recurring-task-card { 
+    padding: 14px;
+    margin: 8px;
+    width: calc(100vw - 16px);
+  }
+  .quick-task-form label,
+  .add-block-form label,
+  .recurring-task-form label { font-size: 12px; }
+  .quick-task-form input,
+  .quick-task-form select,
+  .add-block-form input,
+  .recurring-task-form input,
+  .recurring-task-form select { padding: 10px; font-size: 14px; }
+  
+  .icon-options { grid-template-columns: repeat(4, 1fr); }
+  
+  /* Confirmation dialog */
+  .recurring-confirm-card { padding: 16px; }
+  .recurring-confirm-card h3 { font-size: 16px; }
+  .recurring-confirm-card p { font-size: 13px; }
+  .recurring-confirm-actions { flex-direction: column; }
+  .recurring-confirm-actions .btn { width: 100%; }
+}
+
+/* Touch device optimizations */
+@media (hover: none) and (pointer: coarse) {
+  /* Always show resize handle on touch devices */
+  .entry-resize-handle { opacity: 0.6; }
+  
+  /* Larger touch targets */
+  .entry { min-height: 32px; }
+  .entry-delete-btn { 
+    min-width: 32px; 
+    min-height: 32px; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center;
+  }
+  
+  /* Disable hover effects that don't work well on touch */
+  .palette-card:hover { border-color: var(--border); box-shadow: none; }
+  .palette-card.active { border-style: solid; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.15); }
+  
+  /* Better scrolling */
+  .palette-scroll,
+  .schedule-wrapper,
+  .icon-options { 
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+}
+
+/* Landscape phone optimization */
+@media (max-width: 900px) and (max-height: 500px) and (orientation: landscape) {
+  .app-shell { padding: 8px; }
+  .app-header { margin-bottom: 8px; }
+  .layout { gap: 8px; }
+  .palette-panel { display: none; }
+  .planner-panel { padding: 8px; }
+  .planner-header { margin-bottom: 8px; }
+  .schedule-wrapper { grid-template-columns: 40px 1fr; }
+  .time-col { padding-top: 30px; }
+  .grid-header { padding: 2px 0; }
 }
 
 /* Theme toggle */

@@ -6,14 +6,14 @@
   <section class="palette-panel">
     <div class="panel-header">Blocks</div>
     <div class="palette-controls">
+      <button type="button" class="btn quick-task-btn" id="quick-task-btn">+ Quick task</button>
+      <button type="button" class="btn recurring-task-btn" id="recurring-task-btn">🔄 Recurring</button>
       <input type="text" id="block-search" placeholder="Search blocks..." class="search-input" />
       <select id="duration-select" class="duration-select">
         {% for d in duration_options %}
           <option value="{{d}}" {% if d == 60 %}selected{% endif %}>{% if d >= 60 %}{{"%d:%02dh" % (d//60, d%60)}}{% else %}{{d}}m{% endif %}</option>
         {% endfor %}
       </select>
-      <button type="button" class="btn quick-task-btn" id="quick-task-btn">+ Quick task</button>
-      <button type="button" class="btn recurring-task-btn" id="recurring-task-btn">🔄 Recurring</button>
     </div>
     <div class="palette-scroll">
       {% include "partials/palette.html" %}
@@ -28,17 +28,21 @@
         <div class="legend"><span class="dot act"></span>Activity</div>
         <div class="legend"><span class="dot night"></span>Night</div>
       </div>
-      <div class="week-nav">
-        <a href="/?week={{prev_week}}" class="week-btn" title="Previous week">◂</a>
+      <div class="week-nav-wrapper">
         <span class="week-label">
           Week of {{week_start.strftime('%b %d, %Y')}}
         </span>
-        <a href="/?week={{next_week}}" class="week-btn" title="Next week">▸</a>
-        <a href="/" class="week-btn today-btn" title="Go to today">Today</a>
+        <div class="week-nav">
+          <a href="/?week={{prev_week}}" class="week-btn" title="Previous week">◂</a>
+          <a href="/?week={{next_week}}" class="week-btn" title="Next week">▸</a>
+          <a href="/" class="week-btn today-btn" title="Go to today">Today</a>
+        </div>
       </div>
     </div>
-    <div hx-target="#schedule" hx-swap="outerHTML">
-      {% include "partials/schedule.html" %}
+    <div class="schedule-scroll-container">
+      <div hx-target="#schedule" hx-swap="outerHTML">
+        {% include "partials/schedule.html" %}
+      </div>
     </div>
   </section>
 </div>

@@ -29,8 +29,11 @@
     </label>
     <input type="hidden" name="week" value="{{entry.week_start}}" />
     <div class="entry-note-actions">
-      <button type="button" class="btn ghost" data-note-close>Cancel</button>
-      <button type="submit" class="btn">Save note</button>
+      <button type="button" class="btn ghost danger" data-delete-entry="{{entry.id}}">Delete</button>
+      <div class="entry-note-actions-right">
+        <button type="button" class="btn ghost" data-note-close>Cancel</button>
+        <button type="submit" class="btn">Save note</button>
+      </div>
     </div>
   </form>
 </div>

@@ -30,6 +30,37 @@ function init() {
   setupThemeToggle();
 }
 
+/* ---------- TOUCH HELPERS ---------- */
+function isTouchDevice() {
+  return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+}
+
+function getEventCoords(e) {
+  if (e.touches && e.touches.length > 0) {
+    return { clientX: e.touches[0].clientX, clientY: e.touches[0].clientY };
+  }
+  if (e.changedTouches && e.changedTouches.length > 0) {
+    return { clientX: e.changedTouches[0].clientX, clientY: e.changedTouches[0].clientY };
+  }
+  return { clientX: e.clientX, clientY: e.clientY };
+}
+
+function addDragListeners() {
+  window.addEventListener("mousemove", onDragMove);
+  window.addEventListener("mouseup", onDragEnd);
+  window.addEventListener("touchmove", onDragMove, { passive: false });
+  window.addEventListener("touchend", onDragEnd);
+  window.addEventListener("touchcancel", onDragEnd);
+}
+
+function removeDragListeners() {
+  window.removeEventListener("mousemove", onDragMove);
+  window.removeEventListener("mouseup", onDragEnd);
+  window.removeEventListener("touchmove", onDragMove);
+  window.removeEventListener("touchend", onDragEnd);
+  window.removeEventListener("touchcancel", onDragEnd);
+}
+
 /* ---------- THEME ---------- */
 function initTheme() {
   const saved = localStorage.getItem("theme");
@@ -105,6 +136,11 @@ function setupPalette() {
       e.preventDefault();
       startPaletteDrag(e, card);
     });
+    card.addEventListener("touchstart", (e) => {
+      if (e.target.closest(".palette-delete-btn")) return;
+      e.preventDefault();
+      startPaletteDrag(e, card);
+    }, { passive: false });
   });
 }
 
@@ -141,8 +177,7 @@ function startPaletteDrag(event, card) {
 
   document.body.style.cursor = "grabbing";
   document.body.style.userSelect = "none";
-  window.addEventListener("mousemove", onDragMove);
-  window.addEventListener("mouseup", onDragEnd);
+  addDragListeners();
 }
 
 /* ---------- SEARCH ---------- */
@@ -255,6 +290,24 @@ function setupEntries() {
       startEntryDrag(e, entry, meta);
     });
 
+    // Touch support for entries
+    let touchStartTimer = null;
+    entry.addEventListener("touchstart", (e) => {
+      if (e.target.closest(".entry-delete-btn")) return;
+      if (e.target.closest(".entry-title-text")) return;
+      
+      if (e.target.closest(".entry-resize-handle")) {
+        e.preventDefault();
+        e.stopPropagation();
+        startResize(e, entry, meta);
+        return;
+      }
+      
+      // Start drag immediately for touch
+      e.preventDefault();
+      startEntryDrag(e, entry, meta);
+    }, { passive: false });
+
     entry.addEventListener("click", (e) => handleEntryClick(e, entry));
   });
 }
@@ -279,8 +332,7 @@ function startEntryDrag(event, entry, meta) {
   entry.classList.add("dragging");
   document.body.style.cursor = "grabbing";
   document.body.style.userSelect = "none";
-  window.addEventListener("mousemove", onDragMove);
-  window.addEventListener("mouseup", onDragEnd);
+  addDragListeners();
 }
 
 function startResize(event, entry, meta) {
@@ -303,8 +355,7 @@ function startResize(event, entry, meta) {
   entry.classList.add("dragging");
   document.body.style.cursor = "ns-resize";
   document.body.style.userSelect = "none";
-  window.addEventListener("mousemove", onDragMove);
-  window.addEventListener("mouseup", onDragEnd);
+  addDragListeners();
 }
 
 /* ---------- COLLISION DETECTION ---------- */
@@ -338,7 +389,11 @@ function onDragMove(event) {
   const ds = window.dragState;
   if (!ds) return;
 
-  const col = findDayCol(event.clientX, event.clientY);
+  // Prevent default for touch events to avoid scrolling
+  if (event.cancelable) event.preventDefault();
+
+  const coords = getEventCoords(event);
+  const col = findDayCol(coords.clientX, coords.clientY);
   if (!col) {
     ds.indicator.style.display = "none";
     ds.target = null;
@@ -348,7 +403,7 @@ function onDragMove(event) {
 
   const { meta, mode } = ds;
   const rect = col.getBoundingClientRect();
-  const y = Math.max(0, event.clientY - rect.top);
+  const y = Math.max(0, coords.clientY - rect.top);
   
   // Snap to slot grid
   const slots = Math.floor(y / meta.slotHeight);
@@ -404,8 +459,7 @@ function onDragEnd() {
   if (ds.indicator) ds.indicator.remove();
   document.body.style.cursor = "";
   document.body.style.userSelect = "";
-  window.removeEventListener("mousemove", onDragMove);
-  window.removeEventListener("mouseup", onDragEnd);
+  removeDragListeners();
 
   // Always suppress click after any drag operation
   suppressEntryClick();
@@ -714,6 +768,46 @@ function setupEntryNoteModal() {
   modal.addEventListener("click", (e) => {
     if (e.target.matches("[data-note-close]")) {
       closeModal();
+    }
+    // Handle delete entry button
+    const deleteEntryBtn = e.target.closest("[data-delete-entry]");
+    if (deleteEntryBtn) {
+      const entryId = deleteEntryBtn.dataset.deleteEntry;
+      if (entryId && confirm("Delete this entry?")) {
+        const weekStart = getWeekStart();
+        let url = `/entries/${entryId}`;
+        if (weekStart) url += `?week_start=${weekStart}`;
+        fetch(url, {
+          method: "DELETE",
+          headers: { "HX-Request": "true" },
+        })
+          .then((r) => r.text())
+          .then((html) => {
+            replaceScheduleHtml(html);
+            closeModal();
+          })
+          .catch(console.error);
+      }
+    }
+    // Handle delete recurring task button
+    const deleteRecurringBtn = e.target.closest("[data-delete-recurring]");
+    if (deleteRecurringBtn) {
+      const taskId = deleteRecurringBtn.dataset.deleteRecurring;
+      if (taskId && confirm("Delete all instances of this recurring task?")) {
+        const weekStart = getWeekStart();
+        let url = `/recurring-tasks/${taskId}`;
+        if (weekStart) url += `?week_start=${weekStart}`;
+        fetch(url, {
+          method: "DELETE",
+          headers: { "HX-Request": "true" },
+        })
+          .then((r) => r.text())
+          .then((html) => {
+            replaceScheduleHtml(html);
+            closeModal();
+          })
+          .catch(console.error);
+      }
     }
   });
   if (overlay) {
