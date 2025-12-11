@@ -186,6 +186,21 @@ a { color: inherit; }
 .recurring-confirm-card p { margin: 0; color: var(--muted); font-size: 14px; }
 .recurring-confirm-actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
 
+/* Generic confirmation dialog */
+.confirm-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 65; }
+.confirm-modal.is-open { display: flex; }
+.confirm-overlay { position: absolute; inset: 0; background: var(--modal-overlay); backdrop-filter: blur(2px); }
+.confirm-card { position: relative; width: min(360px, 90vw); background: var(--panel); border-radius: 14px; padding: 24px; box-shadow: 0 30px 80px var(--card-shadow); border: 1px solid var(--border); z-index: 1; display: grid; gap: 16px; text-align: center; }
+.confirm-card h3 { margin: 0; font-size: 18px; }
+.confirm-card p { margin: 0; color: var(--muted); font-size: 14px; }
+.confirm-actions { display: flex; justify-content: center; gap: 10px; }
+.btn.danger { color: #fff; background: #ef4444; border-color: #ef4444; }
+.btn.danger:hover { background: #dc2626; }
+
+/* Quick task error message */
+.quick-task-error { display: none; padding: 10px 12px; background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; color: #dc2626; font-size: 13px; margin-bottom: 8px; }
+[data-theme="dark"] .quick-task-error { background: #450a0a; border-color: #7f1d1d; color: #fca5a5; }
+
 /* Week navigation */
 .week-nav-wrapper { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .week-nav { display: flex; align-items: center; gap: 8px; }
@@ -521,16 +536,6 @@ a { color: inherit; }
 @media (hover: none) and (pointer: coarse) {
   /* Always show resize handle on touch devices */
   .entry-resize-handle { opacity: 0.6; }
-  
-  /* Larger touch targets */
-  .entry { min-height: 32px; }
-  .entry-delete-btn { 
-    min-width: 32px; 
-    min-height: 32px; 
-    display: flex; 
-    align-items: center; 
-    justify-content: center;
-  }
   
   /* Disable hover effects that don't work well on touch */
   .palette-card:hover { border-color: var(--border); box-shadow: none; }
