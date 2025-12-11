@@ -535,6 +535,8 @@ function onDragEnd() {
           fd.append("start_minute", String(target.startMinute));
           fd.append("duration_minutes", String(target.duration));
           if (weekStart) fd.append("week", weekStart);
+          // Clear any exception for the instance being dragged so it reflects the new base values
+          if (ds.instanceDate) fd.append("clear_exception_date", ds.instanceDate);
 
           fetch(`/recurring-tasks/${ds.recurringTaskId}/move-all`, {
             method: "PATCH",
@@ -1162,3 +1164,62 @@ function setupConfirmDialog() {
 
   modal.dataset.bound = "true";
 }
+
+/* ─────────────────────────────────────────────────────────
+   Import button handler
+───────────────────────────────────────────────────────── */
+(function setupImport() {
+  const importBtn = document.getElementById("import-btn");
+  const importFile = document.getElementById("import-file");
+  
+  if (!importBtn || !importFile) return;
+  if (importBtn.dataset.bound) return;
+  
+  importBtn.addEventListener("click", () => {
+    importFile.click();
+  });
+  
+  importFile.addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    // Confirm before import
+    window.openConfirmDialog(
+      "Import Data",
+      "This will replace ALL existing data. Are you sure?",
+      async () => {
+        const fd = new FormData();
+        fd.append("file", file);
+        
+        try {
+          const resp = await fetch("/import/csv", {
+            method: "POST",
+            body: fd,
+          });
+          
+          if (resp.ok) {
+            window.location.href = "/";
+          } else {
+            const text = await resp.text();
+            alert("Import failed: " + text);
+          }
+        } catch (err) {
+          alert("Import error: " + err.message);
+        }
+        
+        // Reset file input
+        importFile.value = "";
+      }
+    );
+    
+    // If user cancels, reset file input
+    setTimeout(() => {
+      if (!document.querySelector(".confirm-modal.is-open")) {
+        importFile.value = "";
+      }
+    }, 100);
+  });
+  
+  importBtn.dataset.bound = "true";
+})();
+
