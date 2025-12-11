@@ -37,7 +37,7 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-html { scroll-behavior: smooth; -webkit-tap-highlight-color: transparent; }
+html { scroll-behavior: smooth; -webkit-tap-highlight-color: transparent; overflow-x: hidden; }
 body {
   margin: 0;
   font-family: "Manrope", "Segoe UI", sans-serif;
@@ -356,9 +356,12 @@ a { color: inherit; }
 
 /* Mobile styles */
 @media (max-width: 768px) {
-  .app-shell { padding: 12px; }
+  .app-shell { padding: 8px; overflow-x: hidden; }
   .app-header { flex-wrap: wrap; gap: 8px; }
   .brand { font-size: 18px; }
+  
+  /* Constrain layout width */
+  .layout { max-width: 100vw; overflow: hidden; }
   
   /* Palette panel - collapsible on mobile */
   .palette-panel { 
@@ -374,7 +377,7 @@ a { color: inherit; }
   .palette-name { font-size: 12px; }
   
   /* Planner panel - header stays fixed, only grid scrolls */
-  .planner-panel { padding: 12px; }
+  .planner-panel { padding: 10px; overflow: hidden; }
   .planner-header { flex-direction: column; align-items: stretch; gap: 10px; }
   .legends { justify-content: center; }
   .week-nav-wrapper { align-items: center; }
@@ -384,26 +387,28 @@ a { color: inherit; }
   /* Scrollable schedule container */
   .schedule-scroll-container {
     overflow-x: auto;
+    overflow-y: visible;
     -webkit-overflow-scrolling: touch;
-    margin: 0 -12px;
-    padding: 0 12px;
+    margin: 0;
+    padding-bottom: 10px;
   }
   
   /* Schedule wrapper - wider columns for readability */
   .schedule-wrapper { 
-    grid-template-columns: 55px 1fr; 
-    min-width: 800px; /* Wider to keep blocks readable */
+    grid-template-columns: 50px 1fr; 
+    min-width: 700px;
+    width: max-content;
   }
   .time-col { padding-top: 42px; }
-  .time-label { font-size: 10px; height: 48px; }
+  .time-label { font-size: 9px; height: 48px; margin-left: 0; padding-right: 6px; }
   .periods { display: none; }
   
   /* Grid columns - wider (1.5x) */
-  .grid-cols { min-width: 745px; }
-  .grid-header, .grid-body { grid-template-columns: repeat(7, minmax(100px, 1fr)); }
+  .grid-cols { min-width: 650px; }
+  .grid-header, .grid-body { grid-template-columns: repeat(7, minmax(90px, 1fr)); }
   
-  /* Show delete button always on mobile */
-  .entry-delete-btn { opacity: 1 !important; }
+  /* Hide delete button on mobile - use note modal to delete */
+  .entry-delete-btn { display: none !important; }
   
   /* Week navigation */
   .week-btn { padding: 8px 10px; font-size: 12px; }
@@ -450,7 +455,7 @@ a { color: inherit; }
 
 /* Small mobile styles */
 @media (max-width: 480px) {
-  .app-shell { padding: 8px; }
+  .app-shell { padding: 6px; overflow-x: hidden; }
   .brand { font-size: 16px; }
   
   .palette-panel { padding: 10px; }
@@ -458,15 +463,16 @@ a { color: inherit; }
   .search-input, .duration-select { padding: 10px; font-size: 14px; }
   
   /* Keep schedule at readable size, scroll horizontally */
-  .planner-panel { padding: 10px; }
-  .schedule-scroll-container { margin: 0 -10px; padding: 0 10px; }
+  .planner-panel { padding: 8px; overflow: hidden; }
+  .schedule-scroll-container { margin: 0; padding-bottom: 8px; }
   .schedule-wrapper { 
-    grid-template-columns: 50px 1fr;
-    min-width: 750px;
+    grid-template-columns: 45px 1fr;
+    min-width: 650px;
+    width: max-content;
   }
-  .time-label { font-size: 9px; height: 48px; }
-  .grid-cols { min-width: 700px; }
-  .grid-header, .grid-body { grid-template-columns: repeat(7, minmax(95px, 1fr)); }
+  .time-label { font-size: 8px; height: 48px; margin-left: 0; padding-right: 4px; }
+  .grid-cols { min-width: 605px; }
+  .grid-header, .grid-body { grid-template-columns: repeat(7, minmax(85px, 1fr)); }
   
   .week-label { font-size: 13px; }
   .week-btn { padding: 8px; font-size: 11px; }
