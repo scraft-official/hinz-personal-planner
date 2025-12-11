@@ -4,9 +4,16 @@ document.addEventListener("DOMContentLoaded", () => {
   document.body.addEventListener("htmx:afterSwap", (evt) => {
     if (evt.target && evt.target.id === "schedule") {
       setupEntries();
+      computeOverlaps();
     }
     if (evt.target && evt.target.id === "palette") {
       setupPalette();
+    }
+    if (evt.target && evt.target.id === "plans-list") {
+      updatePlanSelectors();
+      // Reset the add plan form after successful creation
+      const addForm = document.getElementById("plans-add-form");
+      if (addForm) addForm.reset();
     }
     setupIconPicker();
     setupQuickTaskModal();
@@ -29,6 +36,10 @@ function init() {
   setupRecurringConfirmModal();
   setupConfirmDialog();
   setupThemeToggle();
+  setupPlanControls();
+  setupSettingsDropdown();
+  setupPlansModal();
+  computeOverlaps();
 }
 
 /* ---------- TOUCH HELPERS ---------- */
@@ -331,6 +342,7 @@ function startEntryDrag(event, entry, meta) {
     startMinute: parseInt(entry.dataset.startMinute, 10),
     day: entry.dataset.day,
     color: entry.dataset.color || "#0ea5e9",
+    planId: entry.dataset.planId || null,
     meta,
     indicator: createIndicator(),
     target: null,
@@ -354,6 +366,7 @@ function startResize(event, entry, meta) {
     duration: parseInt(entry.dataset.duration, 10),
     day: entry.dataset.day,
     color: entry.dataset.color || "#0ea5e9",
+    planId: entry.dataset.planId || null,
     meta,
     indicator: createIndicator(),
     target: null,
@@ -373,6 +386,7 @@ function getEntriesInCol(col, excludeInfo) {
     const id = entry.dataset.entryId;
     const recurringTaskId = entry.dataset.recurringTaskId;
     const instanceDate = entry.dataset.instanceDate;
+    const planId = entry.dataset.planId;
     
     // Exclude the entry being dragged
     if (excludeInfo) {
@@ -387,6 +401,7 @@ function getEntriesInCol(col, excludeInfo) {
       id,
       recurringTaskId,
       instanceDate,
+      planId,
       start: parseInt(entry.dataset.startMinute, 10),
       end: parseInt(entry.dataset.endMinute, 10),
     });
@@ -394,8 +409,21 @@ function getEntriesInCol(col, excludeInfo) {
   return result;
 }
 
-function hasCollision(entries, startMinute, endMinute) {
+function hasCollision(entries, startMinute, endMinute, dragPlanId) {
+  // In multi-plan view, entries from different plans can overlap
+  const isMultiPlan = document.querySelector(".schedule-wrapper.multi-plan-view") !== null;
+  
+  // Normalize planId - treat empty string as null
+  const normalizedDragPlanId = dragPlanId || null;
+  
   for (const e of entries) {
+    const normalizedEntryPlanId = e.planId || null;
+    
+    // Skip entries from different plans in multi-plan view
+    // Both must have a planId for this to work
+    if (isMultiPlan && normalizedDragPlanId && normalizedEntryPlanId && normalizedDragPlanId !== normalizedEntryPlanId) {
+      continue;
+    }
     // Check if ranges overlap
     if (startMinute < e.end && endMinute > e.start) {
       return true;
@@ -460,7 +488,9 @@ function onDragMove(event) {
     };
   }
   const existingEntries = getEntriesInCol(col, excludeInfo);
-  const collision = hasCollision(existingEntries, startMinute, endMinute);
+  // For create mode, use active plan; for move/resize, use entry's plan
+  const dragPlanId = ds.mode === "create" ? getActivePlanId() : ds.planId;
+  const collision = hasCollision(existingEntries, startMinute, endMinute, dragPlanId);
 
   if (collision) {
     ds.indicator.classList.add("invalid");
@@ -571,6 +601,7 @@ function onDragEnd() {
         });
     }
   } else if (mode === "create") {
+    const activePlanId = getActivePlanId();
     const fd = new FormData();
     fd.append("day", target.day);
     fd.append("start_time", minutesToTime(target.startMinute));
@@ -578,6 +609,7 @@ function onDragEnd() {
     fd.append("block_type_id", ds.blockId);
     fd.append("note", "");
     fd.append("week", weekStart || "");
+    if (activePlanId) fd.append("plan_id", activePlanId);
     fetch("/entries", {
       method: "POST",
       headers: { "HX-Request": "true" },
@@ -640,6 +672,7 @@ function replaceScheduleHtml(html) {
   if (next) {
     current.replaceWith(next);
     setupEntries();
+    computeOverlaps();
   }
 }
 
@@ -675,11 +708,16 @@ function setupQuickTaskModal() {
   if (!modal || !trigger || modal.dataset.bound === "true") return;
   const form = document.getElementById("quick-task-form");
   const closeTargets = modal.querySelectorAll("[data-close-modal]");
+  const planIdInput = document.getElementById("quick-task-plan-id");
 
   const openModal = () => {
     modal.classList.add("is-open");
     modal.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
+    // Set plan_id from active plan selector
+    if (planIdInput) {
+      planIdInput.value = getActivePlanId() || "";
+    }
     const firstInput = form ? form.querySelector("input[name='title']") : null;
     window.setTimeout(() => firstInput && firstInput.focus(), 10);
   };
@@ -1001,11 +1039,16 @@ function setupRecurringTaskModal() {
   const patternSelect = document.getElementById("recurring-pattern");
   const dayOfWeekLabel = document.getElementById("day-of-week-label");
   const dayOfMonthLabel = document.getElementById("day-of-month-label");
+  const planIdInput = document.getElementById("recurring-task-plan-id");
 
   const openModal = () => {
     modal.classList.add("is-open");
     modal.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
+    // Set plan_id from active plan selector
+    if (planIdInput) {
+      planIdInput.value = getActivePlanId() || "";
+    }
     const firstInput = form ? form.querySelector("input[name='title']") : null;
     window.setTimeout(() => firstInput && firstInput.focus(), 10);
   };
@@ -1223,3 +1266,292 @@ function setupConfirmDialog() {
   importBtn.dataset.bound = "true";
 })();
 
+/* ─────────────────────────────────────────────────────────
+   Plan Controls - View selector and active plan
+───────────────────────────────────────────────────────── */
+function setupPlanControls() {
+  const viewSelector = document.getElementById("plan-view-selector");
+  const activePlanSelect = document.getElementById("active-plan-select");
+  
+  if (viewSelector && !viewSelector.dataset.bound) {
+    // Restore saved plan selection from localStorage
+    const checkboxes = viewSelector.querySelectorAll("input[type='checkbox']");
+    const availablePlanIds = Array.from(checkboxes).map(cb => cb.value);
+    const savedSelection = localStorage.getItem("selectedPlanIds");
+    
+    if (savedSelection) {
+      try {
+        let savedIds = JSON.parse(savedSelection);
+        // Filter out any plans that no longer exist
+        savedIds = savedIds.filter(id => availablePlanIds.includes(id));
+        
+        if (savedIds.length > 0) {
+          // Apply saved selection
+          checkboxes.forEach(cb => {
+            cb.checked = savedIds.includes(cb.value);
+          });
+          // Trigger refresh to load correct plan data
+          refreshScheduleWithPlans();
+        } else {
+          // All saved plans were removed, clear storage and keep defaults
+          localStorage.removeItem("selectedPlanIds");
+        }
+      } catch (e) {
+        localStorage.removeItem("selectedPlanIds");
+      }
+    }
+    
+    // Prevent unchecking the last checkbox
+    viewSelector.addEventListener("change", (e) => {
+      const boxes = viewSelector.querySelectorAll("input[type='checkbox']");
+      const checkedCount = viewSelector.querySelectorAll("input:checked").length;
+      
+      // If trying to uncheck and would result in 0 checked, prevent it
+      if (checkedCount === 0 && e.target.type === "checkbox") {
+        e.target.checked = true;
+        return; // Don't refresh
+      }
+      
+      // Save selection to localStorage
+      const selectedIds = Array.from(viewSelector.querySelectorAll("input:checked")).map(cb => cb.value);
+      localStorage.setItem("selectedPlanIds", JSON.stringify(selectedIds));
+      
+      // If only one plan selected, sync the active plan dropdown
+      if (selectedIds.length === 1 && activePlanSelect) {
+        activePlanSelect.value = selectedIds[0];
+        sessionStorage.setItem("activePlanId", selectedIds[0]);
+      }
+      
+      refreshScheduleWithPlans();
+    });
+    viewSelector.dataset.bound = "true";
+  }
+  
+  // Store active plan in session storage
+  if (activePlanSelect && !activePlanSelect.dataset.bound) {
+    const savedActive = sessionStorage.getItem("activePlanId");
+    if (savedActive) {
+      const opt = activePlanSelect.querySelector(`option[value="${savedActive}"]`);
+      if (opt) activePlanSelect.value = savedActive;
+    }
+    activePlanSelect.addEventListener("change", () => {
+      sessionStorage.setItem("activePlanId", activePlanSelect.value);
+    });
+    activePlanSelect.dataset.bound = "true";
+  }
+}
+
+function getSelectedPlanIds() {
+  const checkboxes = document.querySelectorAll("#plan-view-selector input:checked");
+  return Array.from(checkboxes).map(cb => cb.value);
+}
+
+function getActivePlanId() {
+  const select = document.getElementById("active-plan-select");
+  return select ? select.value : null;
+}
+
+function refreshScheduleWithPlans() {
+  const schedule = document.getElementById("schedule");
+  if (!schedule) return;
+  
+  const weekStart = schedule.dataset.weekStart;
+  const planIds = getSelectedPlanIds();
+  
+  const url = new URL("/schedule", window.location.origin);
+  if (weekStart) url.searchParams.set("week", weekStart);
+  if (planIds.length > 0) url.searchParams.set("plans", planIds.join(","));
+  
+  htmx.ajax("GET", url.toString(), { target: "#schedule", swap: "outerHTML" });
+}
+
+function updatePlanSelectors() {
+  // Called after plans list changes - mark that we need to refresh page
+  // when modal closes (to update plan selectors in header)
+  const modal = document.getElementById("plans-modal");
+  if (modal) {
+    modal.dataset.needsRefresh = "true";
+  }
+}
+
+/* ─────────────────────────────────────────────────────────
+   Settings Dropdown
+───────────────────────────────────────────────────────── */
+function setupSettingsDropdown() {
+  const dropdown = document.getElementById("settings-dropdown");
+  const btn = document.getElementById("settings-btn");
+  const managePlansBtn = document.getElementById("manage-plans-btn");
+  
+  if (!dropdown || !btn) return;
+  if (dropdown.dataset.bound) return;
+  
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    dropdown.classList.toggle("open");
+  });
+  
+  document.addEventListener("click", (e) => {
+    if (!dropdown.contains(e.target)) {
+      dropdown.classList.remove("open");
+    }
+  });
+  
+  if (managePlansBtn) {
+    managePlansBtn.addEventListener("click", () => {
+      dropdown.classList.remove("open");
+      openPlansModal();
+    });
+  }
+  
+  dropdown.dataset.bound = "true";
+}
+
+/* ─────────────────────────────────────────────────────────
+   Plans Modal
+───────────────────────────────────────────────────────── */
+function setupPlansModal() {
+  const modal = document.getElementById("plans-modal");
+  if (!modal) return;
+  if (modal.dataset.bound) return;
+  
+  const closeTargets = modal.querySelectorAll("[data-plans-close]");
+  
+  closeTargets.forEach(el => el.addEventListener("click", closePlansModal));
+  
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closePlansModal();
+  });
+  
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && modal.classList.contains("is-open")) {
+      closePlansModal();
+    }
+  });
+  
+  modal.dataset.bound = "true";
+}
+
+function openPlansModal() {
+  const modal = document.getElementById("plans-modal");
+  if (!modal) return;
+  modal.classList.add("is-open");
+  modal.setAttribute("aria-hidden", "false");
+  document.body.style.overflow = "hidden";
+  
+  // Load plans list when modal opens
+  const plansList = document.getElementById("plans-list");
+  if (plansList) {
+    htmx.ajax("GET", "/plans", { target: "#plans-list", swap: "innerHTML" });
+  }
+}
+
+function closePlansModal() {
+  const modal = document.getElementById("plans-modal");
+  if (!modal) return;
+  
+  const needsRefresh = modal.dataset.needsRefresh === "true";
+  modal.dataset.needsRefresh = "false";
+  
+  modal.classList.remove("is-open");
+  modal.setAttribute("aria-hidden", "true");
+  document.body.style.overflow = "";
+  
+  // Refresh page if plans were modified
+  if (needsRefresh) {
+    window.location.reload();
+  }
+}
+
+/* ─────────────────────────────────────────────────────────
+   Overlap Computation
+───────────────────────────────────────────────────────── */
+function computeOverlaps() {
+  const dayCols = document.querySelectorAll(".day-col");
+  const isMultiPlan = document.querySelector(".multi-plan-view") !== null;
+  
+  dayCols.forEach(col => {
+    const entries = Array.from(col.querySelectorAll(".entry"));
+    
+    // Remove old classes first
+    entries.forEach(entry => {
+      entry.classList.remove("overlap-2", "overlap-3", "overlap-pos-0", "overlap-pos-1", "overlap-pos-2");
+      entry.style.left = "";
+      entry.style.width = "";
+    });
+    
+    if (entries.length < 2) return;
+    
+    // Sort by start minute
+    entries.sort((a, b) => {
+      return parseInt(a.dataset.startMinute) - parseInt(b.dataset.startMinute);
+    });
+    
+    // Find overlapping groups (entries that overlap in time)
+    const timeGroups = [];
+    let currentGroup = [];
+    let currentEnd = 0;
+    
+    entries.forEach(entry => {
+      const start = parseInt(entry.dataset.startMinute);
+      const end = parseInt(entry.dataset.endMinute);
+      
+      if (start < currentEnd) {
+        // Overlaps with current group
+        currentGroup.push(entry);
+        currentEnd = Math.max(currentEnd, end);
+      } else {
+        // New group
+        if (currentGroup.length > 0) {
+          timeGroups.push([...currentGroup]);
+        }
+        currentGroup = [entry];
+        currentEnd = end;
+      }
+    });
+    if (currentGroup.length > 0) {
+      timeGroups.push(currentGroup);
+    }
+    
+    // Apply overlap classes
+    timeGroups.forEach(group => {
+      if (group.length === 1) return;
+      
+      if (isMultiPlan) {
+        // In multi-plan view, group by plan - only different plans get separate columns
+        const planGroups = new Map();
+        group.forEach(entry => {
+          const planId = entry.dataset.planId || "none";
+          if (!planGroups.has(planId)) {
+            planGroups.set(planId, []);
+          }
+          planGroups.get(planId).push(entry);
+        });
+        
+        // If all entries are from same plan, no overlap display needed
+        if (planGroups.size === 1) return;
+        
+        const planIds = Array.from(planGroups.keys());
+        const overlapClass = planIds.length === 2 ? "overlap-2" : "overlap-3";
+        
+        planIds.forEach((planId, planIdx) => {
+          planGroups.get(planId).forEach(entry => {
+            entry.classList.add(overlapClass);
+            if (planIdx > 0) {
+              entry.classList.add(`overlap-pos-${planIdx}`);
+            }
+          });
+        });
+      } else {
+        // Single plan view - original behavior
+        const overlapClass = group.length === 2 ? "overlap-2" : "overlap-3";
+        
+        group.forEach((entry, idx) => {
+          entry.classList.add(overlapClass);
+          if (idx > 0) {
+            entry.classList.add(`overlap-pos-${idx}`);
+          }
+        });
+      }
+    });
+  });
+}

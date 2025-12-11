@@ -1,0 +1,23 @@
+<div class="plans-list">
+  {% for plan in plans %}
+  <div class="plan-item" data-plan-id="{{plan.id}}">
+    <span class="plan-color-dot" style="background: {{plan.color}}"></span>
+    <input type="text" class="plan-name-input" value="{{plan.name}}" name="name"
+           hx-patch="/plans/{{plan.id}}" hx-trigger="change, blur"
+           hx-target="#plans-list" hx-swap="innerHTML" />
+    <div class="plan-actions">
+      <input type="color" class="plan-color-picker" value="{{plan.color}}" 
+             hx-patch="/plans/{{plan.id}}" hx-include="this" name="color"
+             hx-target="#plans-list" hx-swap="innerHTML" />
+      <button type="button" class="plan-delete-btn" 
+              hx-delete="/plans/{{plan.id}}" 
+              hx-target="#plans-list" 
+              hx-swap="innerHTML"
+              hx-confirm="Delete plan '{{plan.name}}'? All entries and recurring tasks in this plan will be permanently deleted."
+              {% if plans|length <= 1 %}disabled title="Cannot delete the last plan"{% endif %}>🗑️</button>
+    </div>
+  </div>
+  {% else %}
+  <div class="plans-empty">No plans yet. Create one below!</div>
+  {% endfor %}
+</div>
