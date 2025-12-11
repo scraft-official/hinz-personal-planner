@@ -38,6 +38,11 @@
           <a href="/" class="week-btn today-btn" title="Go to today">Today</a>
         </div>
       </div>
+      <div class="data-controls">
+        <a href="/export/csv" class="data-btn" title="Export all data">📥 Export</a>
+        <button type="button" class="data-btn" id="import-btn" title="Import data">📤 Import</button>
+        <input type="file" id="import-file" accept=".zip" style="display:none;">
+      </div>
     </div>
     <div class="schedule-scroll-container">
       <div hx-target="#schedule" hx-swap="outerHTML">

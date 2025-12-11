@@ -1,8 +1,11 @@
 from datetime import datetime, date, timedelta
 from typing import Annotated
+import csv
+import io
+import json
 
-from fastapi import Depends, FastAPI, Form, HTTPException, Request, Query
-from fastapi.responses import HTMLResponse
+from fastapi import Depends, FastAPI, Form, HTTPException, Request, Query, UploadFile, File
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
@@ -706,6 +709,7 @@ def move_all_recurring_instances(
     start_minute: Annotated[int, Form(...)],
     duration_minutes: Annotated[int, Form(...)],
     week: Annotated[str | None, Form(...)] = None,
+    clear_exception_date: Annotated[str | None, Form(...)] = None,
     session: Session = Depends(get_session),
 ):
     """Move all instances of a recurring task to a new day/time."""
@@ -723,6 +727,24 @@ def move_all_recurring_instances(
     task.start_minute = start_clamped
     task.duration_minutes = duration_clamped
     session.add(task)
+    
+    # Clear any modified exception for the specific instance that triggered this change
+    # This ensures the dragged instance also reflects the new base values
+    if clear_exception_date:
+        try:
+            exc_date = date.fromisoformat(clear_exception_date)
+            existing_exc = session.exec(
+                select(RecurringException).where(
+                    RecurringException.recurring_task_id == task_id,
+                    RecurringException.exception_date == exc_date,
+                    RecurringException.exception_type == "modified"
+                )
+            ).first()
+            if existing_exc:
+                session.delete(existing_exc)
+        except ValueError:
+            pass
+    
     session.commit()
     
     try:
@@ -781,3 +803,176 @@ def save_recurring_task_note(
     response = templates.TemplateResponse("partials/schedule.html", ctx)
     response.headers["HX-Trigger"] = "entry-note-saved"
     return response
+
+
+# ─────────────────────────── EXPORT / IMPORT ─────────────────────────────────
+
+@app.get("/export/csv")
+def export_csv(session: Session = Depends(get_session)):
+    """Export all data to a ZIP containing multiple CSV files."""
+    import zipfile
+    
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Block Types
+        block_csv = io.StringIO()
+        writer = csv.writer(block_csv)
+        writer.writerow(["id", "name", "color", "icon", "duration_minutes", "is_quick_template", "created_at"])
+        for bt in session.exec(select(BlockType)).all():
+            writer.writerow([bt.id, bt.name, bt.color, bt.icon, bt.duration_minutes, bt.is_quick_template, bt.created_at.isoformat()])
+        zf.writestr("block_types.csv", block_csv.getvalue())
+        
+        # Schedule Entries
+        entry_csv = io.StringIO()
+        writer = csv.writer(entry_csv)
+        writer.writerow(["id", "week_start", "day", "start_minute", "duration_minutes", "note", "block_type_id", "custom_title", "is_quick", "created_at"])
+        for e in session.exec(select(ScheduleEntry)).all():
+            writer.writerow([e.id, e.week_start.isoformat(), e.day, e.start_minute, e.duration_minutes, e.note or "", e.block_type_id, e.custom_title or "", e.is_quick, e.created_at.isoformat()])
+        zf.writestr("schedule_entries.csv", entry_csv.getvalue())
+        
+        # Recurring Tasks
+        rec_csv = io.StringIO()
+        writer = csv.writer(rec_csv)
+        writer.writerow(["id", "title", "note", "block_type_id", "pattern", "interval", "day_of_week", "day_of_month", "start_minute", "duration_minutes", "start_date", "end_date", "created_at"])
+        for rt in session.exec(select(RecurringTask)).all():
+            writer.writerow([rt.id, rt.title, rt.note or "", rt.block_type_id, rt.pattern, rt.interval, rt.day_of_week, rt.day_of_month, rt.start_minute, rt.duration_minutes, rt.start_date.isoformat(), rt.end_date.isoformat() if rt.end_date else "", rt.created_at.isoformat()])
+        zf.writestr("recurring_tasks.csv", rec_csv.getvalue())
+        
+        # Recurring Exceptions
+        exc_csv = io.StringIO()
+        writer = csv.writer(exc_csv)
+        writer.writerow(["id", "recurring_task_id", "exception_date", "exception_type", "new_day", "new_start_minute", "new_duration_minutes", "created_at"])
+        for ex in session.exec(select(RecurringException)).all():
+            writer.writerow([ex.id, ex.recurring_task_id, ex.exception_date.isoformat(), ex.exception_type, ex.new_day or "", ex.new_start_minute or "", ex.new_duration_minutes or "", ex.created_at.isoformat()])
+        zf.writestr("recurring_exceptions.csv", exc_csv.getvalue())
+    
+    output.seek(0)
+    filename = f"planner_export_{date.today().isoformat()}.zip"
+    return StreamingResponse(
+        output,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@app.post("/import/csv")
+async def import_csv(
+    request: Request,
+    file: UploadFile = File(...),
+    session: Session = Depends(get_session),
+):
+    """Import data from a ZIP file containing CSV files. Replaces all existing data."""
+    import zipfile
+    
+    if not file.filename.endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Please upload a .zip file")
+    
+    contents = await file.read()
+    try:
+        zf = zipfile.ZipFile(io.BytesIO(contents))
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="Invalid ZIP file")
+    
+    # Delete all existing data (order matters due to foreign keys)
+    session.exec(select(RecurringException)).all()
+    for ex in session.exec(select(RecurringException)).all():
+        session.delete(ex)
+    for rt in session.exec(select(RecurringTask)).all():
+        session.delete(rt)
+    for e in session.exec(select(ScheduleEntry)).all():
+        session.delete(e)
+    for bt in session.exec(select(BlockType)).all():
+        session.delete(bt)
+    session.commit()
+    
+    # Import Block Types first
+    if "block_types.csv" in zf.namelist():
+        reader = csv.DictReader(io.StringIO(zf.read("block_types.csv").decode("utf-8")))
+        for row in reader:
+            bt = BlockType(
+                id=int(row["id"]),
+                name=row["name"],
+                color=row["color"],
+                icon=row["icon"],
+                duration_minutes=int(row["duration_minutes"]),
+                is_quick_template=row["is_quick_template"].lower() == "true",
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+            session.add(bt)
+        session.commit()
+    
+    # Import Schedule Entries
+    if "schedule_entries.csv" in zf.namelist():
+        reader = csv.DictReader(io.StringIO(zf.read("schedule_entries.csv").decode("utf-8")))
+        for row in reader:
+            entry = ScheduleEntry(
+                id=int(row["id"]),
+                week_start=date.fromisoformat(row["week_start"]),
+                day=row["day"],
+                start_minute=int(row["start_minute"]),
+                duration_minutes=int(row["duration_minutes"]),
+                note=row["note"] or None,
+                block_type_id=int(row["block_type_id"]),
+                custom_title=row["custom_title"] or None,
+                is_quick=row["is_quick"].lower() == "true",
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+            session.add(entry)
+        session.commit()
+    
+    # Import Recurring Tasks
+    if "recurring_tasks.csv" in zf.namelist():
+        reader = csv.DictReader(io.StringIO(zf.read("recurring_tasks.csv").decode("utf-8")))
+        for row in reader:
+            rt = RecurringTask(
+                id=int(row["id"]),
+                title=row["title"],
+                note=row["note"] or None,
+                block_type_id=int(row["block_type_id"]),
+                pattern=row["pattern"],
+                interval=int(row["interval"]),
+                day_of_week=int(row["day_of_week"]) if row["day_of_week"] else None,
+                day_of_month=int(row["day_of_month"]) if row["day_of_month"] else None,
+                start_minute=int(row["start_minute"]),
+                duration_minutes=int(row["duration_minutes"]),
+                start_date=date.fromisoformat(row["start_date"]),
+                end_date=date.fromisoformat(row["end_date"]) if row["end_date"] else None,
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+            session.add(rt)
+        session.commit()
+    
+    # Import Recurring Exceptions
+    if "recurring_exceptions.csv" in zf.namelist():
+        reader = csv.DictReader(io.StringIO(zf.read("recurring_exceptions.csv").decode("utf-8")))
+        for row in reader:
+            ex = RecurringException(
+                id=int(row["id"]),
+                recurring_task_id=int(row["recurring_task_id"]),
+                exception_date=date.fromisoformat(row["exception_date"]),
+                exception_type=row["exception_type"],
+                new_day=row["new_day"] or None,
+                new_start_minute=int(row["new_start_minute"]) if row["new_start_minute"] else None,
+                new_duration_minutes=int(row["new_duration_minutes"]) if row["new_duration_minutes"] else None,
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+            session.add(ex)
+        session.commit()
+    
+    # Ensure quick block exists
+    ensure_quick_block(session)
+    
+    # Redirect to home
+    week_start = get_week_start(date.today())
+    ctx = _schedule_data(session, week_start)
+    ctx["request"] = request
+    ctx.update({
+        "duration_options": DURATION_OPTIONS,
+        "icon_choices": ICON_CHOICES,
+    })
+    # Return full page refresh notice
+    return HTMLResponse(
+        content='<html><head><meta http-equiv="refresh" content="0;url=/"></head><body>Import successful! Redirecting...</body></html>',
+        status_code=200
+    )
+
