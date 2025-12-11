@@ -1,0 +1,12 @@
+{% import "partials/icons.html" as icons %}
+<div id="palette" class="palette-grid">
+  {% for b in blocks %}
+    <div class="palette-card-wrapper">
+      <button class="palette-card" type="button" data-block-id="{{b.id}}" data-name="{{b.name}}" data-color="{{b.color}}" style="--accent: {{b.color}};">
+        <div class="palette-icon">{{ icons.render(b.icon, 20, b.color) }}</div>
+        <div class="palette-name">{{ b.name }}</div>
+      </button>
+      <button type="button" class="palette-delete-btn" data-block-id="{{b.id}}" aria-label="Delete block">×</button>
+    </div>
+  {% endfor %}
+</div>

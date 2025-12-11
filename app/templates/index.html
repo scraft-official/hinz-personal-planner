@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% import "partials/icons.html" as icons %}
+
+{% block content %}
+<div class="layout">
+  <section class="palette-panel">
+    <div class="panel-header">Blocks</div>
+    <div class="palette-controls">
+      <input type="text" id="block-search" placeholder="Search blocks..." class="search-input" />
+      <select id="duration-select" class="duration-select">
+        {% for d in duration_options %}
+          <option value="{{d}}" {% if d == 60 %}selected{% endif %}>{% if d >= 60 %}{{"%d:%02dh" % (d//60, d%60)}}{% else %}{{d}}m{% endif %}</option>
+        {% endfor %}
+      </select>
+      <button type="button" class="btn quick-task-btn" id="quick-task-btn">+ Quick task</button>
+    </div>
+    <div class="palette-scroll">
+      {% include "partials/palette.html" %}
+    </div>
+    <button type="button" class="btn add-block-btn" id="add-block-btn">+ Add block</button>
+  </section>
+
+  <section class="planner-panel">
+    <div class="planner-header">
+      <div class="legends">
+        <div class="legend"><span class="dot prod"></span>Production</div>
+        <div class="legend"><span class="dot act"></span>Activity</div>
+        <div class="legend"><span class="dot night"></span>Night</div>
+      </div>
+      <div class="week-nav">
+        <a href="/?week={{prev_week}}" class="week-btn" title="Previous week">◂</a>
+        <span class="week-label">
+          Week of {{week_start.strftime('%b %d, %Y')}}
+        </span>
+        <a href="/?week={{next_week}}" class="week-btn" title="Next week">▸</a>
+        <a href="/" class="week-btn today-btn" title="Go to today">Today</a>
+      </div>
+    </div>
+    <div hx-target="#schedule" hx-swap="outerHTML">
+      {% include "partials/schedule.html" %}
+    </div>
+  </section>
+</div>
+
+<div class="quick-task-modal" id="quick-task-modal" aria-hidden="true">
+  <div class="quick-task-overlay" data-close-modal></div>
+  <div class="quick-task-card" role="dialog" aria-modal="true" aria-labelledby="quick-task-title">
+    <div class="quick-task-header">
+      <div>
+        <div class="quick-task-eyebrow">Fast capture</div>
+        <h2 id="quick-task-title">Add quick task</h2>
+      </div>
+      <button type="button" class="quick-task-close" data-close-modal aria-label="Close">×</button>
+    </div>
+    <form id="quick-task-form"
+          class="quick-task-form"
+          hx-post="/quick-task"
+          hx-target="#schedule"
+          hx-swap="outerHTML">
+      <label>
+        Task label
+        <input type="text" name="title" maxlength="80" placeholder="What needs doing?" required />
+      </label>
+      <div class="quick-task-grid">
+        <label>
+          Day
+          <select name="day" required>
+            {% for d in day_order %}
+              <option value="{{d}}" {% if week_dates[loop.index0].is_today %}selected{% endif %}>{{d}}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Start time
+          <input type="time" name="start_time" value="09:00" step="900" required />
+        </label>
+      </div>
+      <p class="quick-task-hint">Creates a 1h gray block you can drag or resize later.</p>
+      <input type="hidden" name="week" value="{{week_start}}" />
+      <div class="quick-task-actions">
+        <button type="button" class="btn ghost" data-close-modal>Cancel</button>
+        <button type="submit" class="btn">Add task</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="entry-note-modal" id="entry-note-modal" aria-hidden="true">
+  <div class="entry-note-overlay" data-note-close></div>
+  <div class="entry-note-shell" id="entry-note-content"></div>
+</div>
+
+<div class="add-block-modal" id="add-block-modal" aria-hidden="true">
+  <div class="add-block-overlay" data-block-close></div>
+  <div class="add-block-card" role="dialog" aria-modal="true" aria-labelledby="add-block-title">
+    <div class="add-block-header">
+      <div>
+        <div class="add-block-eyebrow">New template</div>
+        <h2 id="add-block-title">Create block type</h2>
+      </div>
+      <button type="button" class="add-block-close" data-block-close aria-label="Close">×</button>
+    </div>
+    <form id="add-block-form"
+          class="add-block-form"
+          hx-post="/blocks"
+          hx-target="#palette"
+          hx-swap="outerHTML">
+      <label>
+        Label
+        <input type="text" name="name" maxlength="60" placeholder="e.g. Meeting, Deep work..." required />
+      </label>
+      <label>
+        Color
+        <input type="color" name="color" value="#0ea5e9" />
+      </label>
+      <label>
+        Icon
+        {% set default_icon = icon_choices[0].name if icon_choices else 'calendar' %}
+        <div class="icon-picker" data-selected-class="is-selected">
+          <input type="hidden" name="icon" value="{{default_icon}}" />
+          <div class="icon-options">
+            {% for icon in icon_choices %}
+              <button type="button" class="icon-option {% if icon.name == default_icon %}is-selected{% endif %}" data-icon="{{icon.name}}">
+                <span class="icon-preview">{{ icons.render(icon.name, 18, "var(--text)") }}</span>
+                <span class="icon-label">{{ icon.label }}</span>
+              </button>
+            {% endfor %}
+          </div>
+        </div>
+      </label>
+      <div class="add-block-actions">
+        <button type="button" class="btn ghost" data-block-close>Cancel</button>
+        <button type="submit" class="btn">Create block</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

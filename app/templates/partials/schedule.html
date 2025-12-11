@@ -1,0 +1,85 @@
+{% import "partials/icons.html" as icons %}
+{% set total_slots = ((day_end - day_start) / slot_minutes) | int %}
+{% set grid_height = total_slots * slot_height %}
+<div class="schedule-wrapper" id="schedule" data-day-start="{{day_start}}" data-day-end="{{day_end}}" data-slot-minutes="{{slot_minutes}}" data-slot-height="{{slot_height}}" data-day-order="{{ day_order | join(',') }}" data-week-start="{{week_start}}" data-is-current-week="{{is_current_week|lower}}">
+  <div class="time-col">
+    <div class="periods">
+      {% for p in periods %}
+        {% set height = ((p.end - p.start) / slot_minutes) * slot_height %}
+        {% set top = ((p.start - day_start) / slot_minutes) * slot_height %}
+        <div class="period-segment {{p.class}}" style="top: {{top}}px; height: {{height}}px;">
+          <span>{{p.name}}</span>
+        </div>
+      {% endfor %}
+    </div>
+    {% for m in range(day_start, day_end+1, 60) %}
+      <div class="time-label" style="height: {{(60/slot_minutes)*slot_height}}px;">
+        {{"%02d:%02d" % (m//60, m%60)}}
+      </div>
+    {% endfor %}
+  </div>
+  <div class="grid-cols">
+    <div class="grid-header">
+      {% for wd in week_dates %}
+        <div class="day-head {% if wd.is_today %}is-today{% endif %}">
+          <span class="day-name">{{wd.name[:3]}}</span>
+          <span class="day-date">{{wd.date.day}}</span>
+        </div>
+      {% endfor %}
+    </div>
+    {% if is_current_week and current_time_top is defined and current_time_top >= 0 %}
+      <div class="current-time-line" style="top: {{current_time_top + 28}}px;"></div>
+    {% endif %}
+    <div class="grid-body" style="height: {{grid_height}}px;">
+      {% for wd in week_dates %}
+        {% set day = wd.name %}
+        {% set prod_height = ((periods[0].end - periods[0].start) / slot_minutes) * slot_height %}
+        {% set act_top = ((periods[1].start - day_start) / slot_minutes) * slot_height %}
+        {% set act_height = ((periods[1].end - periods[1].start) / slot_minutes) * slot_height %}
+        {% set night_top = ((periods[2].start - day_start) / slot_minutes) * slot_height %}
+        {% set night_height = ((periods[2].end - periods[2].start) / slot_minutes) * slot_height %}
+        <div class="day-col {% if wd.is_today %}is-today{% endif %}" data-day="{{day}}" style="height: {{grid_height}}px;">
+          <div class="day-period prod" style="top: 0; height: {{prod_height}}px;"></div>
+          <div class="day-period act" style="top: {{act_top}}px; height: {{act_height}}px;"></div>
+          <div class="day-period night" style="top: {{night_top}}px; height: {{night_height}}px;"></div>
+          {% for entry in entries_by_day.get(day, []) %}
+            {% set top = ((entry.start_minute - day_start) / slot_minutes) * slot_height %}
+            {% set height = (entry.duration_minutes / slot_minutes) * slot_height %}
+            {% set end_minute = entry.start_minute + entry.duration_minutes %}
+            {% set start_time = "%02d:%02d" % (entry.start_minute//60, entry.start_minute%60) %}
+            {% set end_time = "%02d:%02d" % (end_minute//60, end_minute%60) %}
+            {% set dur_h = entry.duration_minutes // 60 %}
+            {% set dur_m = entry.duration_minutes % 60 %}
+            {% set dur_str = ("%dh %02dm" % (dur_h, dur_m)) if dur_h else ("%dm" % dur_m) %}
+            {% set display_name = entry.custom_title or entry.block_type.name %}
+            {% set tooltip = display_name ~ " · " ~ start_time ~ " – " ~ end_time ~ " (" ~ dur_str ~ ")" %}
+              {% if entry.note %}
+                {% set tooltip = tooltip ~ "\n" ~ entry.note %}
+              {% endif %}
+            <div class="entry {% if height < 36 %}compact{% endif %}" 
+                 data-entry-id="{{entry.id}}" 
+                 data-start-minute="{{entry.start_minute}}" 
+                 data-end-minute="{{end_minute}}"
+                 data-duration="{{entry.duration_minutes}}" 
+                 data-day="{{entry.day}}"
+                 data-color="{{entry.block_type.color}}"
+                   data-computed-top="{{top}}"
+                   data-tooltip="{{tooltip}}"
+                   style="top: {{top|int}}px; height: {{height|int}}px; border-color: {{entry.block_type.color}}; background: {{entry.block_type.color}}30;"
+                   aria-label="{{tooltip}}"
+                   tabindex="0">
+              <div class="entry-bar" style="background: {{entry.block_type.color}};"></div>
+              <div class="entry-content">
+                <div class="entry-title">{{ icons.render(entry.block_type.icon, 12, entry.block_type.color) }} <span class="entry-title-text" data-entry-id="{{entry.id}}">{{display_name}}</span></div>
+                <div class="entry-meta">{{start_time}} – {{end_time}}</div>
+                {% if entry.note %}<div class="entry-note">{{entry.note}}</div>{% endif %}
+              </div>
+              <button type="button" class="entry-delete-btn" data-entry-id="{{entry.id}}" aria-label="Delete">×</button>
+              <div class="entry-resize-handle" title="Drag to resize"></div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>

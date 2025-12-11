@@ -1,0 +1,36 @@
+{% import "partials/icons.html" as icons %}
+{% set display_name = entry.custom_title or entry.block_type.name %}
+{% set start_time = "%02d:%02d" % (entry.start_minute // 60, entry.start_minute % 60) %}
+{% set end_minute = entry.start_minute + entry.duration_minutes %}
+{% set end_time = "%02d:%02d" % (end_minute // 60, end_minute % 60) %}
+{% set dur_h = entry.duration_minutes // 60 %}
+{% set dur_m = entry.duration_minutes % 60 %}
+{% set duration_label = ("%dh %02dm" % (dur_h, dur_m)) if dur_h else ("%dm" % dur_m) %}
+<div class="entry-note-card" role="dialog" aria-modal="true" aria-labelledby="entry-note-title">
+  <div class="entry-note-header">
+    <div class="entry-note-meta">
+      <div class="entry-note-icon" style="background: {{entry.block_type.color}}15; border-color: {{entry.block_type.color}};">
+        {{ icons.render(entry.block_type.icon, 20, entry.block_type.color) }}
+      </div>
+      <div>
+        <div class="entry-note-label" id="entry-note-title">{{display_name}}</div>
+        <div class="entry-note-sub">{{entry.day}} · {{start_time}} – {{end_time}} · {{duration_label}}</div>
+      </div>
+    </div>
+    <button type="button" class="entry-note-close" data-note-close aria-label="Close">×</button>
+  </div>
+  <form class="entry-note-form"
+        hx-post="/entries/{{entry.id}}/note"
+        hx-target="#schedule"
+        hx-swap="outerHTML">
+    <label>
+      Notes
+      <textarea name="note" rows="6" maxlength="255" placeholder="Capture context for this specific block...">{{entry.note or ""}}</textarea>
+    </label>
+    <input type="hidden" name="week" value="{{entry.week_start}}" />
+    <div class="entry-note-actions">
+      <button type="button" class="btn ghost" data-note-close>Cancel</button>
+      <button type="submit" class="btn">Save note</button>
+    </div>
+  </form>
+</div>
