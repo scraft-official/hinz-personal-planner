@@ -2,7 +2,9 @@
   {% for plan in plans %}
   <div class="plan-item" data-plan-id="{{plan.id}}">
     <span class="plan-color-dot" style="background: {{plan.color}}"></span>
-    <span class="plan-name">{{plan.name}}</span>
+    <input type="text" class="plan-name-input" value="{{plan.name}}" name="name"
+           hx-patch="/plans/{{plan.id}}" hx-trigger="change, blur"
+           hx-target="#plans-list" hx-swap="innerHTML" />
     <div class="plan-actions">
       <input type="color" class="plan-color-picker" value="{{plan.color}}" 
              hx-patch="/plans/{{plan.id}}" hx-include="this" name="color"

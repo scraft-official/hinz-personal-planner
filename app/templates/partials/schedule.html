@@ -1,7 +1,8 @@
 {% import "partials/icons.html" as icons %}
 {% set total_slots = ((day_end - day_start) / slot_minutes) | int %}
 {% set grid_height = total_slots * slot_height %}
-<div class="schedule-wrapper" id="schedule" data-day-start="{{day_start}}" data-day-end="{{day_end}}" data-slot-minutes="{{slot_minutes}}" data-slot-height="{{slot_height}}" data-day-order="{{ day_order | join(',') }}" data-week-start="{{week_start}}" data-is-current-week="{{is_current_week|lower}}" data-plans="{{plans|map(attribute='id')|list|join(',')}}">
+{% set multi_plan = (plans|length > 1) and (selected_plan_ids|length > 1) %}
+<div class="schedule-wrapper {% if multi_plan %}multi-plan-view{% endif %}" id="schedule" data-day-start="{{day_start}}" data-day-end="{{day_end}}" data-slot-minutes="{{slot_minutes}}" data-slot-height="{{slot_height}}" data-day-order="{{ day_order | join(',') }}" data-week-start="{{week_start}}" data-is-current-week="{{is_current_week|lower}}" data-plans="{{plans|map(attribute='id')|list|join(',')}}">
   <div class="time-col">
     <div class="periods">
       {% for p in periods %}
@@ -81,11 +82,11 @@
             {% set tooltip = display_name ~ " · " ~ start_time ~ " – " ~ end_time ~ " (" ~ dur_str ~ ")" %}
             {% if is_recurring %}{% set tooltip = "🔄 " ~ tooltip %}{% endif %}
             {# Find plan color for indicator #}
-            {% set plan_color = none %}
+            {% set ns = namespace(plan_color=none) %}
             {% if entry_plan_id %}
               {% for plan in plans %}
                 {% if plan.id == entry_plan_id %}
-                  {% set plan_color = plan.color %}
+                  {% set ns.plan_color = plan.color %}
                 {% endif %}
               {% endfor %}
             {% endif %}
@@ -106,10 +107,9 @@
                  data-tooltip="{{tooltip}}"
                  data-is-recurring="{{is_recurring|lower}}"
                  data-plan-id="{{entry_plan_id or ''}}"
-                 style="top: {{top|int}}px; height: {{height|int}}px; border-color: {{entry_color}}; background: {{entry_color}}30;"
+                 style="top: {{top|int}}px; height: {{height|int}}px; border-color: {{entry_color}}; background: {{entry_color}}30; --plan-color: {{ns.plan_color or 'transparent'}};"
                  aria-label="{{tooltip}}"
                  tabindex="0">
-              {% if plan_color %}<div class="entry-plan-indicator" style="background: {{plan_color}};"></div>{% endif %}
               <div class="entry-bar {% if is_recurring %}striped{% endif %}" style="background: {{entry_color}};"></div>
               <div class="entry-content">
                 <div class="entry-title">{{ icons.render(entry_icon, 12, entry_color) }} <span class="entry-title-text" {% if is_recurring %}data-recurring-task-id="{{recurring_task_id}}" data-instance-date="{{instance_date}}"{% else %}data-entry-id="{{entry.id}}"{% endif %}>{{display_name}}</span></div>

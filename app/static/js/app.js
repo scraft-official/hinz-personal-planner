@@ -11,6 +11,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (evt.target && evt.target.id === "plans-list") {
       updatePlanSelectors();
+      // Reset the add plan form after successful creation
+      const addForm = document.getElementById("plans-add-form");
+      if (addForm) addForm.reset();
     }
     setupIconPicker();
     setupQuickTaskModal();
@@ -339,6 +342,7 @@ function startEntryDrag(event, entry, meta) {
     startMinute: parseInt(entry.dataset.startMinute, 10),
     day: entry.dataset.day,
     color: entry.dataset.color || "#0ea5e9",
+    planId: entry.dataset.planId || null,
     meta,
     indicator: createIndicator(),
     target: null,
@@ -362,6 +366,7 @@ function startResize(event, entry, meta) {
     duration: parseInt(entry.dataset.duration, 10),
     day: entry.dataset.day,
     color: entry.dataset.color || "#0ea5e9",
+    planId: entry.dataset.planId || null,
     meta,
     indicator: createIndicator(),
     target: null,
@@ -381,6 +386,7 @@ function getEntriesInCol(col, excludeInfo) {
     const id = entry.dataset.entryId;
     const recurringTaskId = entry.dataset.recurringTaskId;
     const instanceDate = entry.dataset.instanceDate;
+    const planId = entry.dataset.planId;
     
     // Exclude the entry being dragged
     if (excludeInfo) {
@@ -395,6 +401,7 @@ function getEntriesInCol(col, excludeInfo) {
       id,
       recurringTaskId,
       instanceDate,
+      planId,
       start: parseInt(entry.dataset.startMinute, 10),
       end: parseInt(entry.dataset.endMinute, 10),
     });
@@ -402,8 +409,21 @@ function getEntriesInCol(col, excludeInfo) {
   return result;
 }
 
-function hasCollision(entries, startMinute, endMinute) {
+function hasCollision(entries, startMinute, endMinute, dragPlanId) {
+  // In multi-plan view, entries from different plans can overlap
+  const isMultiPlan = document.querySelector(".schedule-wrapper.multi-plan-view") !== null;
+  
+  // Normalize planId - treat empty string as null
+  const normalizedDragPlanId = dragPlanId || null;
+  
   for (const e of entries) {
+    const normalizedEntryPlanId = e.planId || null;
+    
+    // Skip entries from different plans in multi-plan view
+    // Both must have a planId for this to work
+    if (isMultiPlan && normalizedDragPlanId && normalizedEntryPlanId && normalizedDragPlanId !== normalizedEntryPlanId) {
+      continue;
+    }
     // Check if ranges overlap
     if (startMinute < e.end && endMinute > e.start) {
       return true;
@@ -468,7 +488,9 @@ function onDragMove(event) {
     };
   }
   const existingEntries = getEntriesInCol(col, excludeInfo);
-  const collision = hasCollision(existingEntries, startMinute, endMinute);
+  // For create mode, use active plan; for move/resize, use entry's plan
+  const dragPlanId = ds.mode === "create" ? getActivePlanId() : ds.planId;
+  const collision = hasCollision(existingEntries, startMinute, endMinute, dragPlanId);
 
   if (collision) {
     ds.indicator.classList.add("invalid");
@@ -650,6 +672,7 @@ function replaceScheduleHtml(html) {
   if (next) {
     current.replaceWith(next);
     setupEntries();
+    computeOverlaps();
   }
 }
 
@@ -1251,7 +1274,54 @@ function setupPlanControls() {
   const activePlanSelect = document.getElementById("active-plan-select");
   
   if (viewSelector && !viewSelector.dataset.bound) {
-    viewSelector.addEventListener("change", () => {
+    // Restore saved plan selection from localStorage
+    const checkboxes = viewSelector.querySelectorAll("input[type='checkbox']");
+    const availablePlanIds = Array.from(checkboxes).map(cb => cb.value);
+    const savedSelection = localStorage.getItem("selectedPlanIds");
+    
+    if (savedSelection) {
+      try {
+        let savedIds = JSON.parse(savedSelection);
+        // Filter out any plans that no longer exist
+        savedIds = savedIds.filter(id => availablePlanIds.includes(id));
+        
+        if (savedIds.length > 0) {
+          // Apply saved selection
+          checkboxes.forEach(cb => {
+            cb.checked = savedIds.includes(cb.value);
+          });
+          // Trigger refresh to load correct plan data
+          refreshScheduleWithPlans();
+        } else {
+          // All saved plans were removed, clear storage and keep defaults
+          localStorage.removeItem("selectedPlanIds");
+        }
+      } catch (e) {
+        localStorage.removeItem("selectedPlanIds");
+      }
+    }
+    
+    // Prevent unchecking the last checkbox
+    viewSelector.addEventListener("change", (e) => {
+      const boxes = viewSelector.querySelectorAll("input[type='checkbox']");
+      const checkedCount = viewSelector.querySelectorAll("input:checked").length;
+      
+      // If trying to uncheck and would result in 0 checked, prevent it
+      if (checkedCount === 0 && e.target.type === "checkbox") {
+        e.target.checked = true;
+        return; // Don't refresh
+      }
+      
+      // Save selection to localStorage
+      const selectedIds = Array.from(viewSelector.querySelectorAll("input:checked")).map(cb => cb.value);
+      localStorage.setItem("selectedPlanIds", JSON.stringify(selectedIds));
+      
+      // If only one plan selected, sync the active plan dropdown
+      if (selectedIds.length === 1 && activePlanSelect) {
+        activePlanSelect.value = selectedIds[0];
+        sessionStorage.setItem("activePlanId", selectedIds[0]);
+      }
+      
       refreshScheduleWithPlans();
     });
     viewSelector.dataset.bound = "true";
@@ -1367,6 +1437,12 @@ function openPlansModal() {
   modal.classList.add("is-open");
   modal.setAttribute("aria-hidden", "false");
   document.body.style.overflow = "hidden";
+  
+  // Load plans list when modal opens
+  const plansList = document.getElementById("plans-list");
+  if (plansList) {
+    htmx.ajax("GET", "/plans", { target: "#plans-list", swap: "innerHTML" });
+  }
 }
 
 function closePlansModal() {
@@ -1441,7 +1517,7 @@ function computeOverlaps() {
       const overlapClass = group.length === 2 ? "overlap-2" : "overlap-3";
       
       group.forEach((entry, idx) => {
-        entry.classList.add("schedule-entry", overlapClass);
+        entry.classList.add(overlapClass);
         if (idx > 0) {
           entry.classList.add(`overlap-pos-${idx}`);
         }

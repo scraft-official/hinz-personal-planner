@@ -287,7 +287,6 @@ a { color: inherit; }
     transparent 4px
   ) !important;
 }
-.entry.recurring { border-style: dashed; }
 .entry-content { flex: 1; min-width: 0; overflow: hidden; }
 .entry-title { display: flex; align-items: center; gap: 4px; font-weight: 700; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .entry-title-text { cursor: pointer; border-bottom: 1px solid transparent; transition: border-color 0.15s; }
@@ -405,7 +404,29 @@ a { color: inherit; }
   .week-nav { justify-content: center; }
   .plan-controls { justify-content: center; flex-wrap: wrap; gap: 10px; }
   .plan-selector { flex-wrap: wrap; justify-content: center; }
-  .settings-dropdown { position: absolute; top: 10px; right: 10px; }
+  .plan-label { font-size: 11px; }
+  .plan-chip { font-size: 10px; padding: 2px 6px; }
+  .plan-select { font-size: 11px; padding: 4px 6px; }
+  .settings-dropdown { position: fixed; top: 8px; right: 8px; z-index: 1000; }
+  .settings-btn { padding: 8px 12px; font-size: 16px; background: var(--panel); border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+  .settings-menu { min-width: 160px; right: 0; }
+  .settings-item { padding: 10px 14px; font-size: 13px; }
+  
+  /* Plans modal on mobile */
+  .plans-card {
+    width: calc(100vw - 24px);
+    min-width: auto;
+    max-width: none;
+    margin: 12px;
+    padding: 16px;
+    max-height: calc(100vh - 48px);
+    overflow-y: auto;
+  }
+  .plans-header h2 { font-size: 16px; }
+  .plans-add-form { flex-wrap: wrap; }
+  .plans-add-form input[type="text"] { flex: 1 1 100%; margin-bottom: 8px; }
+  .plan-item { padding: 10px; }
+  .plan-name { font-size: 13px; }
   
   /* Scrollable schedule container */
   .schedule-scroll-container {
@@ -433,8 +454,8 @@ a { color: inherit; }
   .periods { display: none; }
   
   /* Grid columns - wider (1.5x) */
-  .grid-cols { min-width: 650px; }
-  .grid-header, .grid-body { grid-template-columns: repeat(7, minmax(90px, 1fr)); }
+  .grid-cols { min-width: 980px; }
+  .grid-header, .grid-body { grid-template-columns: repeat(7, minmax(135px, 1fr)); }
   
   /* Hide delete button on mobile - use note modal to delete */
   .entry-delete-btn { display: none !important; }
@@ -627,55 +648,58 @@ a { color: inherit; }
 .settings-menu { 
   display: none; 
   position: absolute; 
-  top: 100%; 
+  top: calc(100% + 4px); 
   right: 0; 
-  background: var(--card); 
+  background: var(--panel); 
   border: 1px solid var(--border); 
-  border-radius: 8px; 
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15); 
-  min-width: 160px; 
-  z-index: 100;
-  padding: 4px 0;
+  border-radius: 10px; 
+  box-shadow: 0 8px 32px rgba(0,0,0,0.25); 
+  min-width: 180px; 
+  z-index: 1000;
+  padding: 8px 0;
 }
 .settings-dropdown.open .settings-menu { display: block; }
 .settings-item { 
   display: block; 
   width: 100%; 
-  padding: 8px 14px; 
+  padding: 10px 16px; 
   text-align: left; 
-  background: none; 
+  background: transparent; 
   border: none; 
-  font-size: 13px; 
+  font-size: 14px; 
   color: var(--text); 
   cursor: pointer;
   text-decoration: none;
+  white-space: nowrap;
 }
 .settings-item:hover { background: var(--surface); }
 
 /* Plans Modal */
 .plans-modal { 
-  position: fixed; inset: 0; z-index: 1000; 
-  display: flex; align-items: center; justify-content: center; 
-  opacity: 0; pointer-events: none; transition: opacity 0.2s;
+  position: fixed; inset: 0; z-index: 50; 
+  display: none; align-items: center; justify-content: center;
 }
-.plans-modal.is-open { opacity: 1; pointer-events: auto; }
-.plans-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.5); }
+.plans-modal.is-open { display: flex; }
+.plans-overlay { position: absolute; inset: 0; background: var(--modal-overlay); backdrop-filter: blur(2px); }
 .plans-card { 
   position: relative; 
-  background: var(--card); 
-  border-radius: 12px; 
-  padding: 20px; 
-  min-width: 360px; 
-  max-width: 90vw;
+  width: min(420px, 90vw);
+  background: var(--panel); 
+  border: 1px solid var(--border);
+  border-radius: 14px; 
+  padding: 24px; 
   max-height: 80vh;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  gap: 16px;
+  box-shadow: 0 30px 80px var(--card-shadow);
+  z-index: 1;
 }
-.plans-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.plans-header h2 { margin: 0; font-size: 18px; }
-.plans-close { background: none; border: none; font-size: 24px; cursor: pointer; color: var(--muted); }
-.plans-content { flex: 1; overflow-y: auto; margin-bottom: 16px; }
+.plans-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.plans-header h2 { margin: 0; font-size: 20px; }
+.plans-close { border: none; background: var(--bg); width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 16px; line-height: 1; color: var(--text); }
+.plans-close:hover { background: var(--border); }
+.plans-content { overflow-y: auto; max-height: 300px; }
 .plans-list { display: flex; flex-direction: column; gap: 8px; }
 .plan-item { 
   display: flex; 
@@ -686,7 +710,22 @@ a { color: inherit; }
   border-radius: 8px;
 }
 .plan-color-dot { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
-.plan-name { flex: 1; font-size: 14px; }
+.plan-name-input { 
+  flex: 1; 
+  font-size: 14px; 
+  background: transparent; 
+  border: 1px solid transparent; 
+  border-radius: 4px; 
+  padding: 4px 8px;
+  color: var(--text);
+  font-family: inherit;
+}
+.plan-name-input:hover { border-color: var(--border); }
+.plan-name-input:focus { 
+  outline: none; 
+  border-color: var(--primary); 
+  background: var(--panel);
+}
 .plan-actions { display: flex; gap: 8px; align-items: center; }
 .plan-color-picker { width: 28px; height: 28px; border: none; cursor: pointer; border-radius: 4px; padding: 0; }
 .plan-delete-btn { 
@@ -725,20 +764,23 @@ a { color: inherit; }
   padding: 0;
 }
 
-/* Entry plan indicator */
-.entry-plan-indicator {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  border-radius: 4px 0 0 4px;
+/* Entry plan indicator - solid top border for multi-plan view */
+.multi-plan-view .entry {
+  border-top: 5px solid var(--plan-color, transparent) !important;
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+}
+
+/* Hide delete button on overlapping entries in multi-plan view */
+.multi-plan-view .entry.overlap-2 .entry-delete-btn,
+.multi-plan-view .entry.overlap-3 .entry-delete-btn {
+  display: none;
 }
 
 /* Overlapping entries */
-.schedule-entry.overlap-2 { width: 50% !important; }
-.schedule-entry.overlap-3 { width: 33.33% !important; }
-.schedule-entry.overlap-2.overlap-pos-1 { left: 50% !important; }
-.schedule-entry.overlap-3.overlap-pos-1 { left: 33.33% !important; }
-.schedule-entry.overlap-3.overlap-pos-2 { left: 66.66% !important; }
+.entry.overlap-2 { width: calc(50% - 2px) !important; }
+.entry.overlap-3 { width: calc(33.33% - 2px) !important; }
+.entry.overlap-2.overlap-pos-1 { left: calc(50% + 2px) !important; }
+.entry.overlap-3.overlap-pos-1 { left: calc(33.33% + 1px) !important; }
+.entry.overlap-3.overlap-pos-2 { left: calc(66.66% + 2px) !important; }
 

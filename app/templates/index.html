@@ -8,6 +8,11 @@
     <div class="palette-controls">
       <button type="button" class="btn quick-task-btn" id="quick-task-btn">+ Quick task</button>
       <button type="button" class="btn recurring-task-btn" id="recurring-task-btn">🔄 Recurring</button>
+      <select id="active-plan-select" class="plan-select">
+        {% for plan in plans %}
+        <option value="{{plan.id}}" {% if loop.first %}selected{% endif %}>{{plan.name}}</option>
+        {% endfor %}
+      </select>
       <input type="text" id="block-search" placeholder="Search blocks..." class="search-input" />
       <select id="duration-select" class="duration-select">
         {% for d in duration_options %}
@@ -49,14 +54,6 @@
             </label>
             {% endfor %}
           </div>
-        </div>
-        <div class="plan-selector">
-          <span class="plan-label">Add to:</span>
-          <select id="active-plan-select" class="plan-select">
-            {% for plan in plans %}
-            <option value="{{plan.id}}" {% if loop.first %}selected{% endif %}>{{plan.name}}</option>
-            {% endfor %}
-          </select>
         </div>
       </div>
       <div class="settings-dropdown" id="settings-dropdown">
