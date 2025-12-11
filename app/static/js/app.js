@@ -769,6 +769,46 @@ function setupEntryNoteModal() {
     if (e.target.matches("[data-note-close]")) {
       closeModal();
     }
+    // Handle delete entry button
+    const deleteEntryBtn = e.target.closest("[data-delete-entry]");
+    if (deleteEntryBtn) {
+      const entryId = deleteEntryBtn.dataset.deleteEntry;
+      if (entryId && confirm("Delete this entry?")) {
+        const weekStart = getWeekStart();
+        let url = `/entries/${entryId}`;
+        if (weekStart) url += `?week_start=${weekStart}`;
+        fetch(url, {
+          method: "DELETE",
+          headers: { "HX-Request": "true" },
+        })
+          .then((r) => r.text())
+          .then((html) => {
+            replaceScheduleHtml(html);
+            closeModal();
+          })
+          .catch(console.error);
+      }
+    }
+    // Handle delete recurring task button
+    const deleteRecurringBtn = e.target.closest("[data-delete-recurring]");
+    if (deleteRecurringBtn) {
+      const taskId = deleteRecurringBtn.dataset.deleteRecurring;
+      if (taskId && confirm("Delete all instances of this recurring task?")) {
+        const weekStart = getWeekStart();
+        let url = `/recurring-tasks/${taskId}`;
+        if (weekStart) url += `?week_start=${weekStart}`;
+        fetch(url, {
+          method: "DELETE",
+          headers: { "HX-Request": "true" },
+        })
+          .then((r) => r.text())
+          .then((html) => {
+            replaceScheduleHtml(html);
+            closeModal();
+          })
+          .catch(console.error);
+      }
+    }
   });
   if (overlay) {
     overlay.addEventListener("click", closeModal);
