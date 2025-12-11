@@ -1467,9 +1467,18 @@ function closePlansModal() {
 ───────────────────────────────────────────────────────── */
 function computeOverlaps() {
   const dayCols = document.querySelectorAll(".day-col");
+  const isMultiPlan = document.querySelector(".multi-plan-view") !== null;
   
   dayCols.forEach(col => {
     const entries = Array.from(col.querySelectorAll(".entry"));
+    
+    // Remove old classes first
+    entries.forEach(entry => {
+      entry.classList.remove("overlap-2", "overlap-3", "overlap-pos-0", "overlap-pos-1", "overlap-pos-2");
+      entry.style.left = "";
+      entry.style.width = "";
+    });
+    
     if (entries.length < 2) return;
     
     // Sort by start minute
@@ -1477,8 +1486,8 @@ function computeOverlaps() {
       return parseInt(a.dataset.startMinute) - parseInt(b.dataset.startMinute);
     });
     
-    // Find overlapping groups
-    const groups = [];
+    // Find overlapping groups (entries that overlap in time)
+    const timeGroups = [];
     let currentGroup = [];
     let currentEnd = 0;
     
@@ -1493,35 +1502,56 @@ function computeOverlaps() {
       } else {
         // New group
         if (currentGroup.length > 0) {
-          groups.push([...currentGroup]);
+          timeGroups.push([...currentGroup]);
         }
         currentGroup = [entry];
         currentEnd = end;
       }
     });
     if (currentGroup.length > 0) {
-      groups.push(currentGroup);
+      timeGroups.push(currentGroup);
     }
     
     // Apply overlap classes
-    groups.forEach(group => {
-      // Remove old classes first
-      group.forEach(entry => {
-        entry.classList.remove("overlap-2", "overlap-3", "overlap-pos-0", "overlap-pos-1", "overlap-pos-2");
-        entry.style.left = "";
-        entry.style.width = "";
-      });
-      
+    timeGroups.forEach(group => {
       if (group.length === 1) return;
       
-      const overlapClass = group.length === 2 ? "overlap-2" : "overlap-3";
-      
-      group.forEach((entry, idx) => {
-        entry.classList.add(overlapClass);
-        if (idx > 0) {
-          entry.classList.add(`overlap-pos-${idx}`);
-        }
-      });
+      if (isMultiPlan) {
+        // In multi-plan view, group by plan - only different plans get separate columns
+        const planGroups = new Map();
+        group.forEach(entry => {
+          const planId = entry.dataset.planId || "none";
+          if (!planGroups.has(planId)) {
+            planGroups.set(planId, []);
+          }
+          planGroups.get(planId).push(entry);
+        });
+        
+        // If all entries are from same plan, no overlap display needed
+        if (planGroups.size === 1) return;
+        
+        const planIds = Array.from(planGroups.keys());
+        const overlapClass = planIds.length === 2 ? "overlap-2" : "overlap-3";
+        
+        planIds.forEach((planId, planIdx) => {
+          planGroups.get(planId).forEach(entry => {
+            entry.classList.add(overlapClass);
+            if (planIdx > 0) {
+              entry.classList.add(`overlap-pos-${planIdx}`);
+            }
+          });
+        });
+      } else {
+        // Single plan view - original behavior
+        const overlapClass = group.length === 2 ? "overlap-2" : "overlap-3";
+        
+        group.forEach((entry, idx) => {
+          entry.classList.add(overlapClass);
+          if (idx > 0) {
+            entry.classList.add(`overlap-pos-${idx}`);
+          }
+        });
+      }
     });
   });
 }

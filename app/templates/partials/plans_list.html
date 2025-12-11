@@ -13,7 +13,7 @@
               hx-delete="/plans/{{plan.id}}" 
               hx-target="#plans-list" 
               hx-swap="innerHTML"
-              hx-confirm="Delete plan '{{plan.name}}'? Entries will be unassigned."
+              hx-confirm="Delete plan '{{plan.name}}'? All entries and recurring tasks in this plan will be permanently deleted."
               {% if plans|length <= 1 %}disabled title="Cannot delete the last plan"{% endif %}>🗑️</button>
     </div>
   </div>

@@ -1082,7 +1082,7 @@ def delete_plan(
     plan_id: int,
     session: Session = Depends(get_session),
 ):
-    """Delete a plan. Entries will have their plan_id set to NULL."""
+    """Delete a plan and all associated entries."""
     plan = session.get(Plan, plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
@@ -1092,13 +1092,14 @@ def delete_plan(
     if plan_count <= 1:
         raise HTTPException(status_code=400, detail="Cannot delete the last plan")
     
-    # Update entries to remove plan association
+    # Delete all entries associated with this plan
     for entry in session.exec(select(ScheduleEntry).where(ScheduleEntry.plan_id == plan_id)).all():
-        entry.plan_id = None
-        session.add(entry)
+        session.delete(entry)
     for task in session.exec(select(RecurringTask).where(RecurringTask.plan_id == plan_id)).all():
-        task.plan_id = None
-        session.add(task)
+        # Also delete recurring exceptions for this task
+        for exc in session.exec(select(RecurringException).where(RecurringException.recurring_task_id == task.id)).all():
+            session.delete(exc)
+        session.delete(task)
     
     session.delete(plan)
     session.commit()
