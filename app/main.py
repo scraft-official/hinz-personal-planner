@@ -10,22 +10,19 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
-from .db import get_session, init_db, seed_defaults, ensure_quick_block
-from .models import BlockType, ScheduleEntry, RecurringTask, RecurringException
+from .db import get_session, init_db, seed_defaults, ensure_quick_block, ensure_default_plan
+from .models import BlockType, ScheduleEntry, RecurringTask, RecurringException, Plan
+from .config import (
+    DAY_START_MINUTE, DAY_END_MINUTE, SLOT_MINUTES, SLOT_HEIGHT_PX,
+    PRODUCTION_END, ACTIVITY_END, DURATION_OPTIONS, PLAN_COLORS
+)
 
 app = FastAPI(title="Planner")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 templates = Jinja2Templates(directory="app/templates")
 
 DAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-DAY_START_MINUTE = 7 * 60  # 07:00
-DAY_END_MINUTE = 22 * 60 + 30  # 22:30
-SLOT_MINUTES = 15
-SLOT_HEIGHT_PX = 12
-PRODUCTION_END = 15 * 60  # 15:00
-ACTIVITY_END = 20 * 60    # 20:00
 
-DURATION_OPTIONS = [30, 45, 60, 90, 120, 180, 270, 360]
 ICON_CHOICES = [
     {"name": "calendar", "label": "Calendar"},
     {"name": "users", "label": "People"},
@@ -77,17 +74,21 @@ def get_quick_block_type(session: Session) -> BlockType:
     return ensure_quick_block(session)
 
 
-def get_recurring_instances_for_week(session: Session, week_start: date) -> list[dict]:
+def get_recurring_instances_for_week(session: Session, week_start: date, plan_ids: list[int] | None = None) -> list[dict]:
     """Generate virtual entries for recurring tasks that fall within the given week."""
     week_end = week_start + timedelta(days=6)
     
     # Get all active recurring tasks
-    recurring_tasks = session.exec(
-        select(RecurringTask).where(
-            RecurringTask.start_date <= week_end,
-            (RecurringTask.end_date == None) | (RecurringTask.end_date >= week_start)
-        )
-    ).all()
+    query = select(RecurringTask).where(
+        RecurringTask.start_date <= week_end,
+        (RecurringTask.end_date == None) | (RecurringTask.end_date >= week_start)
+    )
+    
+    # Filter by plan_ids if provided
+    if plan_ids is not None:
+        query = query.where(RecurringTask.plan_id.in_(plan_ids) | (RecurringTask.plan_id == None))
+    
+    recurring_tasks = session.exec(query).all()
     
     instances = []
     
@@ -159,6 +160,7 @@ def get_recurring_instances_for_week(session: Session, week_start: date) -> list
                 "duration_minutes": duration,
                 "block_type": task.block_type,
                 "is_recurring": True,
+                "plan_id": task.plan_id,
             })
     
     return instances
@@ -170,21 +172,25 @@ def on_startup() -> None:
     seed_defaults()
 
 
-def _schedule_data(session: Session, week_start: date):
+def _schedule_data(session: Session, week_start: date, plan_ids: list[int] | None = None):
     blocks = session.exec(
         select(BlockType)
         .where(BlockType.is_quick_template == False)
         .order_by(BlockType.name)
     ).all()
-    entries = session.exec(
-        select(ScheduleEntry).where(ScheduleEntry.week_start == week_start)
-    ).all()
+    
+    # Build entry query with optional plan filtering
+    entry_query = select(ScheduleEntry).where(ScheduleEntry.week_start == week_start)
+    if plan_ids is not None:
+        entry_query = entry_query.where(ScheduleEntry.plan_id.in_(plan_ids) | (ScheduleEntry.plan_id == None))
+    entries = session.exec(entry_query).all()
+    
     entries_by_day: dict[str, list] = {d: [] for d in DAY_ORDER}
     for entry in entries:
         entries_by_day.setdefault(entry.day, []).append(entry)
     
     # Add recurring task instances
-    recurring_instances = get_recurring_instances_for_week(session, week_start)
+    recurring_instances = get_recurring_instances_for_week(session, week_start, plan_ids)
     for instance in recurring_instances:
         entries_by_day.setdefault(instance["day"], []).append(instance)
     
@@ -203,6 +209,9 @@ def _schedule_data(session: Session, week_start: date):
         current_minute = now.hour * 60 + now.minute
         if DAY_START_MINUTE <= current_minute <= DAY_END_MINUTE:
             current_time_top = ((current_minute - DAY_START_MINUTE) / SLOT_MINUTES) * SLOT_HEIGHT_PX
+    
+    # Get all plans for the selector
+    all_plans = session.exec(select(Plan).order_by(Plan.name)).all()
     
     return {
         "blocks": blocks,
@@ -225,13 +234,27 @@ def _schedule_data(session: Session, week_start: date):
         "icon_choices": ICON_CHOICES,
         "is_current_week": is_current_week,
         "current_time_top": current_time_top,
+        "plans": all_plans,
+        "selected_plan_ids": plan_ids or [p.id for p in all_plans],  # Default: show all
+        "plan_colors": PLAN_COLORS,
     }
+
+
+def parse_plan_ids(plans_param: str | None) -> list[int] | None:
+    """Parse comma-separated plan IDs from query param."""
+    if not plans_param:
+        return None
+    try:
+        return [int(p.strip()) for p in plans_param.split(",") if p.strip()]
+    except ValueError:
+        return None
 
 
 @app.get("/", response_class=HTMLResponse)
 def index(
     request: Request,
     week: str | None = Query(default=None),
+    plans: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ):
     if week:
@@ -243,7 +266,8 @@ def index(
     else:
         week_start = get_week_start(date.today())
     
-    ctx = _schedule_data(session, week_start)
+    plan_ids = parse_plan_ids(plans)
+    ctx = _schedule_data(session, week_start, plan_ids)
     ctx["request"] = request
     return templates.TemplateResponse("index.html", ctx)
 
@@ -252,6 +276,7 @@ def index(
 def get_schedule(
     request: Request,
     week: str | None = Query(default=None),
+    plans: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ):
     if week:
@@ -263,7 +288,8 @@ def get_schedule(
     else:
         week_start = get_week_start(date.today())
     
-    ctx = _schedule_data(session, week_start)
+    plan_ids = parse_plan_ids(plans)
+    ctx = _schedule_data(session, week_start, plan_ids)
     ctx["request"] = request
     return templates.TemplateResponse("partials/schedule.html", ctx)
 
@@ -327,6 +353,7 @@ def create_entry(
     block_type_id: Annotated[int, Form(...)],
     week: Annotated[str, Form(...)],
     note: Annotated[str | None, Form(...)] = "",
+    plan_id: Annotated[int | None, Form(...)] = None,
     session: Session = Depends(get_session),
 ):
     if day not in DAY_ORDER:
@@ -357,6 +384,7 @@ def create_entry(
         duration_minutes=duration_minutes,
         block_type_id=block_type_id,
         note=note.strip() or None,
+        plan_id=plan_id,
     )
     session.add(entry)
     session.commit()
@@ -375,6 +403,7 @@ def create_quick_task(
     day: Annotated[str, Form(...)],
     start_time: Annotated[str, Form(...)],
     week: Annotated[str | None, Form(...)] = None,
+    plan_id: Annotated[int | None, Form(...)] = None,
     session: Session = Depends(get_session),
 ):
     clean_title = title.strip()
@@ -423,6 +452,7 @@ def create_quick_task(
         block_type_id=quick_block.id,
         custom_title=clean_title,
         is_quick=True,
+        plan_id=plan_id,
     )
     session.add(entry)
     session.commit()
@@ -538,6 +568,7 @@ def create_recurring_task(
     end_date: Annotated[str | None, Form(...)] = None,
     note: Annotated[str | None, Form(...)] = None,
     week: Annotated[str | None, Form(...)] = None,
+    plan_id: Annotated[int | None, Form(...)] = None,
     session: Session = Depends(get_session),
 ):
     clean_title = title.strip()
@@ -585,6 +616,7 @@ def create_recurring_task(
         duration_minutes=duration_minutes,
         start_date=task_start_date,
         end_date=task_end_date,
+        plan_id=plan_id,
     )
     session.add(task)
     session.commit()
@@ -814,6 +846,14 @@ def export_csv(session: Session = Depends(get_session)):
     
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Plans
+        plan_csv = io.StringIO()
+        writer = csv.writer(plan_csv)
+        writer.writerow(["id", "name", "color", "created_at"])
+        for p in session.exec(select(Plan)).all():
+            writer.writerow([p.id, p.name, p.color, p.created_at.isoformat()])
+        zf.writestr("plans.csv", plan_csv.getvalue())
+        
         # Block Types
         block_csv = io.StringIO()
         writer = csv.writer(block_csv)
@@ -825,17 +865,17 @@ def export_csv(session: Session = Depends(get_session)):
         # Schedule Entries
         entry_csv = io.StringIO()
         writer = csv.writer(entry_csv)
-        writer.writerow(["id", "week_start", "day", "start_minute", "duration_minutes", "note", "block_type_id", "custom_title", "is_quick", "created_at"])
+        writer.writerow(["id", "week_start", "day", "start_minute", "duration_minutes", "note", "block_type_id", "plan_id", "custom_title", "is_quick", "created_at"])
         for e in session.exec(select(ScheduleEntry)).all():
-            writer.writerow([e.id, e.week_start.isoformat(), e.day, e.start_minute, e.duration_minutes, e.note or "", e.block_type_id, e.custom_title or "", e.is_quick, e.created_at.isoformat()])
+            writer.writerow([e.id, e.week_start.isoformat(), e.day, e.start_minute, e.duration_minutes, e.note or "", e.block_type_id, e.plan_id or "", e.custom_title or "", e.is_quick, e.created_at.isoformat()])
         zf.writestr("schedule_entries.csv", entry_csv.getvalue())
         
         # Recurring Tasks
         rec_csv = io.StringIO()
         writer = csv.writer(rec_csv)
-        writer.writerow(["id", "title", "note", "block_type_id", "pattern", "interval", "day_of_week", "day_of_month", "start_minute", "duration_minutes", "start_date", "end_date", "created_at"])
+        writer.writerow(["id", "title", "note", "block_type_id", "plan_id", "pattern", "interval", "day_of_week", "day_of_month", "start_minute", "duration_minutes", "start_date", "end_date", "created_at"])
         for rt in session.exec(select(RecurringTask)).all():
-            writer.writerow([rt.id, rt.title, rt.note or "", rt.block_type_id, rt.pattern, rt.interval, rt.day_of_week, rt.day_of_month, rt.start_minute, rt.duration_minutes, rt.start_date.isoformat(), rt.end_date.isoformat() if rt.end_date else "", rt.created_at.isoformat()])
+            writer.writerow([rt.id, rt.title, rt.note or "", rt.block_type_id, rt.plan_id or "", rt.pattern, rt.interval, rt.day_of_week, rt.day_of_month, rt.start_minute, rt.duration_minutes, rt.start_date.isoformat(), rt.end_date.isoformat() if rt.end_date else "", rt.created_at.isoformat()])
         zf.writestr("recurring_tasks.csv", rec_csv.getvalue())
         
         # Recurring Exceptions
@@ -874,7 +914,6 @@ async def import_csv(
         raise HTTPException(status_code=400, detail="Invalid ZIP file")
     
     # Delete all existing data (order matters due to foreign keys)
-    session.exec(select(RecurringException)).all()
     for ex in session.exec(select(RecurringException)).all():
         session.delete(ex)
     for rt in session.exec(select(RecurringTask)).all():
@@ -883,9 +922,24 @@ async def import_csv(
         session.delete(e)
     for bt in session.exec(select(BlockType)).all():
         session.delete(bt)
+    for p in session.exec(select(Plan)).all():
+        session.delete(p)
     session.commit()
     
-    # Import Block Types first
+    # Import Plans first
+    if "plans.csv" in zf.namelist():
+        reader = csv.DictReader(io.StringIO(zf.read("plans.csv").decode("utf-8")))
+        for row in reader:
+            p = Plan(
+                id=int(row["id"]),
+                name=row["name"],
+                color=row["color"],
+                created_at=datetime.fromisoformat(row["created_at"]),
+            )
+            session.add(p)
+        session.commit()
+    
+    # Import Block Types
     if "block_types.csv" in zf.namelist():
         reader = csv.DictReader(io.StringIO(zf.read("block_types.csv").decode("utf-8")))
         for row in reader:
@@ -913,6 +967,7 @@ async def import_csv(
                 duration_minutes=int(row["duration_minutes"]),
                 note=row["note"] or None,
                 block_type_id=int(row["block_type_id"]),
+                plan_id=int(row["plan_id"]) if row.get("plan_id") else None,
                 custom_title=row["custom_title"] or None,
                 is_quick=row["is_quick"].lower() == "true",
                 created_at=datetime.fromisoformat(row["created_at"]),
@@ -929,6 +984,7 @@ async def import_csv(
                 title=row["title"],
                 note=row["note"] or None,
                 block_type_id=int(row["block_type_id"]),
+                plan_id=int(row["plan_id"]) if row.get("plan_id") else None,
                 pattern=row["pattern"],
                 interval=int(row["interval"]),
                 day_of_week=int(row["day_of_week"]) if row["day_of_week"] else None,
@@ -961,6 +1017,7 @@ async def import_csv(
     
     # Ensure quick block exists
     ensure_quick_block(session)
+    ensure_default_plan(session)
     
     # Redirect to home
     week_start = get_week_start(date.today())
@@ -976,3 +1033,114 @@ async def import_csv(
         status_code=200
     )
 
+
+# ─────────────────────────── PLANS MANAGEMENT ────────────────────────────────
+
+@app.get("/plans", response_class=HTMLResponse)
+def list_plans(
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    """Return the plan management modal content."""
+    plans = session.exec(select(Plan).order_by(Plan.name)).all()
+    return templates.TemplateResponse("partials/plans_list.html", {
+        "request": request,
+        "plans": plans,
+        "plan_colors": PLAN_COLORS,
+    })
+
+
+@app.post("/plans", response_class=HTMLResponse)
+def create_plan(
+    request: Request,
+    name: Annotated[str, Form(...)],
+    color: Annotated[str, Form(...)],
+    session: Session = Depends(get_session),
+):
+    """Create a new plan."""
+    clean_name = name.strip()
+    if not clean_name:
+        raise HTTPException(status_code=400, detail="Name required")
+    
+    plan = Plan(name=clean_name, color=color)
+    session.add(plan)
+    session.commit()
+    
+    plans = session.exec(select(Plan).order_by(Plan.name)).all()
+    response = templates.TemplateResponse("partials/plans_list.html", {
+        "request": request,
+        "plans": plans,
+        "plan_colors": PLAN_COLORS,
+    })
+    response.headers["HX-Trigger"] = "plans-changed"
+    return response
+
+
+@app.delete("/plans/{plan_id}", response_class=HTMLResponse)
+def delete_plan(
+    request: Request,
+    plan_id: int,
+    session: Session = Depends(get_session),
+):
+    """Delete a plan. Entries will have their plan_id set to NULL."""
+    plan = session.get(Plan, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    
+    # Check if this is the last plan
+    plan_count = len(session.exec(select(Plan)).all())
+    if plan_count <= 1:
+        raise HTTPException(status_code=400, detail="Cannot delete the last plan")
+    
+    # Update entries to remove plan association
+    for entry in session.exec(select(ScheduleEntry).where(ScheduleEntry.plan_id == plan_id)).all():
+        entry.plan_id = None
+        session.add(entry)
+    for task in session.exec(select(RecurringTask).where(RecurringTask.plan_id == plan_id)).all():
+        task.plan_id = None
+        session.add(task)
+    
+    session.delete(plan)
+    session.commit()
+    
+    plans = session.exec(select(Plan).order_by(Plan.name)).all()
+    response = templates.TemplateResponse("partials/plans_list.html", {
+        "request": request,
+        "plans": plans,
+        "plan_colors": PLAN_COLORS,
+    })
+    response.headers["HX-Trigger"] = "plans-changed"
+    return response
+
+
+@app.patch("/plans/{plan_id}", response_class=HTMLResponse)
+def update_plan(
+    request: Request,
+    plan_id: int,
+    name: Annotated[str | None, Form(...)] = None,
+    color: Annotated[str | None, Form(...)] = None,
+    session: Session = Depends(get_session),
+):
+    """Update a plan's name or color."""
+    plan = session.get(Plan, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    
+    if name is not None:
+        clean_name = name.strip()
+        if clean_name:
+            plan.name = clean_name
+    if color is not None:
+        plan.color = color
+    
+    session.add(plan)
+    session.commit()
+    
+    plans = session.exec(select(Plan).order_by(Plan.name)).all()
+    response = templates.TemplateResponse("partials/plans_list.html", {
+        "request": request,
+        "plans": plans,
+        "plan_colors": PLAN_COLORS,
+    })
+    response.headers["HX-Trigger"] = "plans-changed"
+    return response

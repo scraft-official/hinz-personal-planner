@@ -14,7 +14,7 @@ engine = create_engine(DATABASE_URL, connect_args=connect_args)
 
 
 def init_db() -> None:
-    from .models import BlockType, ScheduleEntry, RecurringTask, RecurringException  # noqa: F401
+    from .models import BlockType, ScheduleEntry, RecurringTask, RecurringException, Plan  # noqa: F401
 
     SQLModel.metadata.create_all(engine)
     apply_schema_patches()
@@ -22,7 +22,7 @@ def init_db() -> None:
 
 def seed_defaults() -> None:
     """Create a minimal default palette if none exists and ensure quick task template."""
-    from .models import BlockType
+    from .models import BlockType, Plan
 
     with Session(engine) as session:
         existing = session.query(BlockType).count()
@@ -43,6 +43,7 @@ def seed_defaults() -> None:
                 session.add(BlockType(**payload))
             session.commit()
         ensure_quick_block(session)
+        ensure_default_plan(session)
 
 
 def get_session() -> Iterator[Session]:
@@ -70,6 +71,8 @@ def apply_schema_patches() -> None:
     ensure_column("blocktype", "is_quick_template", "INTEGER NOT NULL DEFAULT 0")
     ensure_column("scheduleentry", "custom_title", "TEXT")
     ensure_column("scheduleentry", "is_quick", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column("scheduleentry", "plan_id", "INTEGER REFERENCES plan(id)")
+    ensure_column("recurringtask", "plan_id", "INTEGER REFERENCES plan(id)")
 
 
 def ensure_quick_block(session: Session):
@@ -89,3 +92,20 @@ def ensure_quick_block(session: Session):
     session.commit()
     session.refresh(quick_block)
     return quick_block
+
+
+def ensure_default_plan(session: Session):
+    """Ensure at least one default plan exists."""
+    from .models import Plan
+    
+    existing = session.exec(select(Plan)).first()
+    if existing:
+        return existing
+    default_plan = Plan(
+        name="My Plan",
+        color="#0ea5e9",
+    )
+    session.add(default_plan)
+    session.commit()
+    session.refresh(default_plan)
+    return default_plan

@@ -4,9 +4,13 @@ document.addEventListener("DOMContentLoaded", () => {
   document.body.addEventListener("htmx:afterSwap", (evt) => {
     if (evt.target && evt.target.id === "schedule") {
       setupEntries();
+      computeOverlaps();
     }
     if (evt.target && evt.target.id === "palette") {
       setupPalette();
+    }
+    if (evt.target && evt.target.id === "plans-list") {
+      updatePlanSelectors();
     }
     setupIconPicker();
     setupQuickTaskModal();
@@ -29,6 +33,10 @@ function init() {
   setupRecurringConfirmModal();
   setupConfirmDialog();
   setupThemeToggle();
+  setupPlanControls();
+  setupSettingsDropdown();
+  setupPlansModal();
+  computeOverlaps();
 }
 
 /* ---------- TOUCH HELPERS ---------- */
@@ -571,6 +579,7 @@ function onDragEnd() {
         });
     }
   } else if (mode === "create") {
+    const activePlanId = getActivePlanId();
     const fd = new FormData();
     fd.append("day", target.day);
     fd.append("start_time", minutesToTime(target.startMinute));
@@ -578,6 +587,7 @@ function onDragEnd() {
     fd.append("block_type_id", ds.blockId);
     fd.append("note", "");
     fd.append("week", weekStart || "");
+    if (activePlanId) fd.append("plan_id", activePlanId);
     fetch("/entries", {
       method: "POST",
       headers: { "HX-Request": "true" },
@@ -675,11 +685,16 @@ function setupQuickTaskModal() {
   if (!modal || !trigger || modal.dataset.bound === "true") return;
   const form = document.getElementById("quick-task-form");
   const closeTargets = modal.querySelectorAll("[data-close-modal]");
+  const planIdInput = document.getElementById("quick-task-plan-id");
 
   const openModal = () => {
     modal.classList.add("is-open");
     modal.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
+    // Set plan_id from active plan selector
+    if (planIdInput) {
+      planIdInput.value = getActivePlanId() || "";
+    }
     const firstInput = form ? form.querySelector("input[name='title']") : null;
     window.setTimeout(() => firstInput && firstInput.focus(), 10);
   };
@@ -1001,11 +1016,16 @@ function setupRecurringTaskModal() {
   const patternSelect = document.getElementById("recurring-pattern");
   const dayOfWeekLabel = document.getElementById("day-of-week-label");
   const dayOfMonthLabel = document.getElementById("day-of-month-label");
+  const planIdInput = document.getElementById("recurring-task-plan-id");
 
   const openModal = () => {
     modal.classList.add("is-open");
     modal.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";
+    // Set plan_id from active plan selector
+    if (planIdInput) {
+      planIdInput.value = getActivePlanId() || "";
+    }
     const firstInput = form ? form.querySelector("input[name='title']") : null;
     window.setTimeout(() => firstInput && firstInput.focus(), 10);
   };
@@ -1223,3 +1243,209 @@ function setupConfirmDialog() {
   importBtn.dataset.bound = "true";
 })();
 
+/* ─────────────────────────────────────────────────────────
+   Plan Controls - View selector and active plan
+───────────────────────────────────────────────────────── */
+function setupPlanControls() {
+  const viewSelector = document.getElementById("plan-view-selector");
+  const activePlanSelect = document.getElementById("active-plan-select");
+  
+  if (viewSelector && !viewSelector.dataset.bound) {
+    viewSelector.addEventListener("change", () => {
+      refreshScheduleWithPlans();
+    });
+    viewSelector.dataset.bound = "true";
+  }
+  
+  // Store active plan in session storage
+  if (activePlanSelect && !activePlanSelect.dataset.bound) {
+    const savedActive = sessionStorage.getItem("activePlanId");
+    if (savedActive) {
+      const opt = activePlanSelect.querySelector(`option[value="${savedActive}"]`);
+      if (opt) activePlanSelect.value = savedActive;
+    }
+    activePlanSelect.addEventListener("change", () => {
+      sessionStorage.setItem("activePlanId", activePlanSelect.value);
+    });
+    activePlanSelect.dataset.bound = "true";
+  }
+}
+
+function getSelectedPlanIds() {
+  const checkboxes = document.querySelectorAll("#plan-view-selector input:checked");
+  return Array.from(checkboxes).map(cb => cb.value);
+}
+
+function getActivePlanId() {
+  const select = document.getElementById("active-plan-select");
+  return select ? select.value : null;
+}
+
+function refreshScheduleWithPlans() {
+  const schedule = document.getElementById("schedule");
+  if (!schedule) return;
+  
+  const weekStart = schedule.dataset.weekStart;
+  const planIds = getSelectedPlanIds();
+  
+  const url = new URL("/schedule", window.location.origin);
+  if (weekStart) url.searchParams.set("week", weekStart);
+  if (planIds.length > 0) url.searchParams.set("plans", planIds.join(","));
+  
+  htmx.ajax("GET", url.toString(), { target: "#schedule", swap: "outerHTML" });
+}
+
+function updatePlanSelectors() {
+  // Called after plans list changes - mark that we need to refresh page
+  // when modal closes (to update plan selectors in header)
+  const modal = document.getElementById("plans-modal");
+  if (modal) {
+    modal.dataset.needsRefresh = "true";
+  }
+}
+
+/* ─────────────────────────────────────────────────────────
+   Settings Dropdown
+───────────────────────────────────────────────────────── */
+function setupSettingsDropdown() {
+  const dropdown = document.getElementById("settings-dropdown");
+  const btn = document.getElementById("settings-btn");
+  const managePlansBtn = document.getElementById("manage-plans-btn");
+  
+  if (!dropdown || !btn) return;
+  if (dropdown.dataset.bound) return;
+  
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    dropdown.classList.toggle("open");
+  });
+  
+  document.addEventListener("click", (e) => {
+    if (!dropdown.contains(e.target)) {
+      dropdown.classList.remove("open");
+    }
+  });
+  
+  if (managePlansBtn) {
+    managePlansBtn.addEventListener("click", () => {
+      dropdown.classList.remove("open");
+      openPlansModal();
+    });
+  }
+  
+  dropdown.dataset.bound = "true";
+}
+
+/* ─────────────────────────────────────────────────────────
+   Plans Modal
+───────────────────────────────────────────────────────── */
+function setupPlansModal() {
+  const modal = document.getElementById("plans-modal");
+  if (!modal) return;
+  if (modal.dataset.bound) return;
+  
+  const closeTargets = modal.querySelectorAll("[data-plans-close]");
+  
+  closeTargets.forEach(el => el.addEventListener("click", closePlansModal));
+  
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closePlansModal();
+  });
+  
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && modal.classList.contains("is-open")) {
+      closePlansModal();
+    }
+  });
+  
+  modal.dataset.bound = "true";
+}
+
+function openPlansModal() {
+  const modal = document.getElementById("plans-modal");
+  if (!modal) return;
+  modal.classList.add("is-open");
+  modal.setAttribute("aria-hidden", "false");
+  document.body.style.overflow = "hidden";
+}
+
+function closePlansModal() {
+  const modal = document.getElementById("plans-modal");
+  if (!modal) return;
+  
+  const needsRefresh = modal.dataset.needsRefresh === "true";
+  modal.dataset.needsRefresh = "false";
+  
+  modal.classList.remove("is-open");
+  modal.setAttribute("aria-hidden", "true");
+  document.body.style.overflow = "";
+  
+  // Refresh page if plans were modified
+  if (needsRefresh) {
+    window.location.reload();
+  }
+}
+
+/* ─────────────────────────────────────────────────────────
+   Overlap Computation
+───────────────────────────────────────────────────────── */
+function computeOverlaps() {
+  const dayCols = document.querySelectorAll(".day-col");
+  
+  dayCols.forEach(col => {
+    const entries = Array.from(col.querySelectorAll(".entry"));
+    if (entries.length < 2) return;
+    
+    // Sort by start minute
+    entries.sort((a, b) => {
+      return parseInt(a.dataset.startMinute) - parseInt(b.dataset.startMinute);
+    });
+    
+    // Find overlapping groups
+    const groups = [];
+    let currentGroup = [];
+    let currentEnd = 0;
+    
+    entries.forEach(entry => {
+      const start = parseInt(entry.dataset.startMinute);
+      const end = parseInt(entry.dataset.endMinute);
+      
+      if (start < currentEnd) {
+        // Overlaps with current group
+        currentGroup.push(entry);
+        currentEnd = Math.max(currentEnd, end);
+      } else {
+        // New group
+        if (currentGroup.length > 0) {
+          groups.push([...currentGroup]);
+        }
+        currentGroup = [entry];
+        currentEnd = end;
+      }
+    });
+    if (currentGroup.length > 0) {
+      groups.push(currentGroup);
+    }
+    
+    // Apply overlap classes
+    groups.forEach(group => {
+      // Remove old classes first
+      group.forEach(entry => {
+        entry.classList.remove("overlap-2", "overlap-3", "overlap-pos-0", "overlap-pos-1", "overlap-pos-2");
+        entry.style.left = "";
+        entry.style.width = "";
+      });
+      
+      if (group.length === 1) return;
+      
+      const overlapClass = group.length === 2 ? "overlap-2" : "overlap-3";
+      
+      group.forEach((entry, idx) => {
+        entry.classList.add("schedule-entry", overlapClass);
+        if (idx > 0) {
+          entry.classList.add(`overlap-pos-${idx}`);
+        }
+      });
+    });
+  });
+}
