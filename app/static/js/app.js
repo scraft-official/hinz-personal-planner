@@ -12,6 +12,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setupQuickTaskModal();
     setupEntryNoteModal();
     setupAddBlockModal();
+    setupRecurringTaskModal();
   });
 });
 
@@ -24,6 +25,8 @@ function init() {
   setupQuickTaskModal();
   setupEntryNoteModal();
   setupAddBlockModal();
+  setupRecurringTaskModal();
+  setupRecurringConfirmModal();
   setupThemeToggle();
 }
 
@@ -202,23 +205,63 @@ function setupDeleteButtons() {
     e.stopPropagation();
 
     const entryId = btn.dataset.entryId;
-    if (!entryId) return;
+    const recurringTaskId = btn.dataset.recurringTaskId;
+    const instanceDate = btn.dataset.instanceDate;
+    const weekStart = getWeekStart();
 
     // Prevent double-click issues
     if (btn.disabled) return;
-    btn.disabled = true;
 
-    const weekStart = getWeekStart();
-    let url = `/entries/${entryId}`;
-    if (weekStart) url += `?week_start=${weekStart}`;
+    if (recurringTaskId) {
+      // This is a recurring task - show confirmation dialog
+      window.openRecurringConfirm(
+        "Do you want to delete only this instance or all occurrences?",
+        // Delete single instance
+        () => {
+          btn.disabled = true;
+          const formData = new FormData();
+          formData.append("exception_date", instanceDate);
+          formData.append("exception_type", "deleted");
+          if (weekStart) formData.append("week", weekStart);
 
-    fetch(url, {
-      method: "DELETE",
-      headers: { "HX-Request": "true" },
-    })
-      .then((r) => r.text())
-      .then(replaceScheduleHtml)
-      .catch(console.error);
+          fetch(`/recurring-tasks/${recurringTaskId}/exception`, {
+            method: "POST",
+            headers: { "HX-Request": "true" },
+            body: formData,
+          })
+            .then((r) => r.text())
+            .then(replaceScheduleHtml)
+            .catch(console.error);
+        },
+        // Delete all instances
+        () => {
+          btn.disabled = true;
+          let url = `/recurring-tasks/${recurringTaskId}`;
+          if (weekStart) url += `?week=${weekStart}`;
+
+          fetch(url, {
+            method: "DELETE",
+            headers: { "HX-Request": "true" },
+          })
+            .then((r) => r.text())
+            .then(replaceScheduleHtml)
+            .catch(console.error);
+        }
+      );
+    } else if (entryId) {
+      // Regular entry - delete directly
+      btn.disabled = true;
+      let url = `/entries/${entryId}`;
+      if (weekStart) url += `?week_start=${weekStart}`;
+
+      fetch(url, {
+        method: "DELETE",
+        headers: { "HX-Request": "true" },
+      })
+        .then((r) => r.text())
+        .then(replaceScheduleHtml)
+        .catch(console.error);
+    }
   });
 }
 
@@ -274,6 +317,9 @@ function startEntryDrag(event, entry, meta) {
     mode: "move",
     entry,
     id: entry.dataset.entryId,
+    recurringTaskId: entry.dataset.recurringTaskId,
+    instanceDate: entry.dataset.instanceDate,
+    isRecurring: entry.dataset.isRecurring === "true",
     duration: parseInt(entry.dataset.duration, 10),
     startMinute: parseInt(entry.dataset.startMinute, 10),
     day: entry.dataset.day,
@@ -294,6 +340,9 @@ function startResize(event, entry, meta) {
     mode: "resize",
     entry,
     id: entry.dataset.entryId,
+    recurringTaskId: entry.dataset.recurringTaskId,
+    instanceDate: entry.dataset.instanceDate,
+    isRecurring: entry.dataset.isRecurring === "true",
     startMinute: parseInt(entry.dataset.startMinute, 10),
     duration: parseInt(entry.dataset.duration, 10),
     day: entry.dataset.day,
@@ -424,22 +473,74 @@ function onDragEnd() {
   const weekStart = getWeekStart();
 
   if (mode === "move" || mode === "resize") {
-    const fd = new FormData();
-    fd.append("day", target.day);
-    fd.append("start_minute", String(target.startMinute));
-    fd.append("duration_minutes", String(target.duration));
-    if (weekStart) fd.append("week", weekStart);
-    fetch(`/entries/${ds.id}/move`, {
-      method: "POST",
-      headers: { "HX-Request": "true" },
-      body: fd,
-    })
-      .then((r) => r.text())
-      .then(replaceScheduleHtml)
-      .catch(console.error)
-      .finally(() => {
-        window.dragState = null;
-      });
+    if (ds.isRecurring) {
+      // Recurring task - show confirmation dialog
+      const newDayOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].indexOf(target.day);
+      
+      window.openRecurringConfirm(
+        "Do you want to change only this instance or all occurrences?",
+        // Change single instance
+        () => {
+          const fd = new FormData();
+          fd.append("exception_date", ds.instanceDate);
+          fd.append("exception_type", "modified");
+          fd.append("new_day", target.day);
+          fd.append("new_start_minute", String(target.startMinute));
+          fd.append("new_duration_minutes", String(target.duration));
+          if (weekStart) fd.append("week", weekStart);
+
+          fetch(`/recurring-tasks/${ds.recurringTaskId}/exception`, {
+            method: "POST",
+            headers: { "HX-Request": "true" },
+            body: fd,
+          })
+            .then((r) => r.text())
+            .then(replaceScheduleHtml)
+            .catch(console.error)
+            .finally(() => {
+              window.dragState = null;
+            });
+        },
+        // Change all instances
+        () => {
+          const fd = new FormData();
+          fd.append("day_of_week", String(newDayOfWeek));
+          fd.append("start_minute", String(target.startMinute));
+          fd.append("duration_minutes", String(target.duration));
+          if (weekStart) fd.append("week", weekStart);
+
+          fetch(`/recurring-tasks/${ds.recurringTaskId}/move-all`, {
+            method: "PATCH",
+            headers: { "HX-Request": "true" },
+            body: fd,
+          })
+            .then((r) => r.text())
+            .then(replaceScheduleHtml)
+            .catch(console.error)
+            .finally(() => {
+              window.dragState = null;
+            });
+        }
+      );
+    } else {
+      // Regular entry
+      const fd = new FormData();
+      fd.append("day", target.day);
+      fd.append("start_minute", String(target.startMinute));
+      fd.append("duration_minutes", String(target.duration));
+      if (weekStart) fd.append("week", weekStart);
+      fetch(`/entries/${ds.id}/move`, {
+        method: "POST",
+        headers: { "HX-Request": "true" },
+        body: fd,
+      })
+        .then((r) => r.text())
+        .then(replaceScheduleHtml)
+        .catch(console.error)
+        .finally(() => {
+          window.dragState = null;
+        });
+    }
   } else if (mode === "create") {
     const fd = new FormData();
     fd.append("day", target.day);
@@ -608,13 +709,24 @@ function handleEntryClick(event, entry) {
   // Only open note modal when clicking on the title text
   const titleText = event.target.closest(".entry-title-text");
   if (!titleText) return;
-  const entryId = titleText.dataset.entryId || entry.dataset.entryId;
-  if (!entryId) return;
   if (isEntryClickSuppressed()) return;
   event.preventDefault();
   event.stopPropagation();
-  if (typeof openEntryNoteModal === "function") {
-    openEntryNoteModal(entryId);
+
+  const entryId = titleText.dataset.entryId;
+  const recurringTaskId = titleText.dataset.recurringTaskId;
+  const instanceDate = titleText.dataset.instanceDate;
+
+  if (recurringTaskId) {
+    // Recurring task - open recurring note modal
+    if (typeof openRecurringNoteModal === "function") {
+      openRecurringNoteModal(recurringTaskId, instanceDate);
+    }
+  } else if (entryId) {
+    // Regular entry
+    if (typeof openEntryNoteModal === "function") {
+      openEntryNoteModal(entryId);
+    }
   }
 }
 
@@ -681,6 +793,20 @@ function setupEntryNoteModal() {
     }
   };
 
+  window.openRecurringNoteModal = (taskId, instanceDate) => {
+    if (!content) return;
+    openModal();
+    content.innerHTML = "<div class=\"entry-note-card\"><p>Loading...</p></div>";
+    if (typeof htmx !== "undefined") {
+      let url = `/recurring-tasks/${taskId}/note`;
+      if (instanceDate) url += `?instance_date=${instanceDate}`;
+      htmx.ajax("GET", url, {
+        target: "#entry-note-content",
+        swap: "innerHTML",
+      });
+    }
+  };
+
   modal.dataset.bound = "true";
 }
 
@@ -740,6 +866,130 @@ function setupAddBlockModal() {
       }
     });
   }
+
+  modal.dataset.bound = "true";
+}
+
+/* ---------- RECURRING TASK MODAL ---------- */
+function setupRecurringTaskModal() {
+  const modal = document.getElementById("recurring-task-modal");
+  const trigger = document.getElementById("recurring-task-btn");
+  if (!modal || !trigger || modal.dataset.bound === "true") return;
+  const form = document.getElementById("recurring-task-form");
+  const closeTargets = modal.querySelectorAll("[data-recurring-close]");
+  const patternSelect = document.getElementById("recurring-pattern");
+  const dayOfWeekLabel = document.getElementById("day-of-week-label");
+  const dayOfMonthLabel = document.getElementById("day-of-month-label");
+
+  const openModal = () => {
+    modal.classList.add("is-open");
+    modal.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+    const firstInput = form ? form.querySelector("input[name='title']") : null;
+    window.setTimeout(() => firstInput && firstInput.focus(), 10);
+  };
+
+  const closeModal = () => {
+    modal.classList.remove("is-open");
+    modal.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+  };
+
+  const handleSuccess = () => {
+    if (form) form.reset();
+    closeModal();
+  };
+
+  // Toggle day picker based on pattern
+  const updateDayPicker = () => {
+    const pattern = patternSelect ? patternSelect.value : "weekly";
+    if (dayOfWeekLabel) dayOfWeekLabel.style.display = (pattern === "weekly") ? "grid" : "none";
+    if (dayOfMonthLabel) dayOfMonthLabel.style.display = (pattern === "monthly") ? "grid" : "none";
+  };
+
+  if (patternSelect) {
+    patternSelect.addEventListener("change", updateDayPicker);
+    updateDayPicker();
+  }
+
+  trigger.addEventListener("click", openModal);
+  closeTargets.forEach((el) => el.addEventListener("click", closeModal));
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal || e.target.matches("[data-recurring-close]")) {
+      closeModal();
+    }
+  });
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && modal.classList.contains("is-open")) {
+      closeModal();
+    }
+  });
+
+  if (form) {
+    form.addEventListener("htmx:afterRequest", (evt) => {
+      if (evt.detail.successful) {
+        handleSuccess();
+      }
+    });
+  }
+
+  modal.dataset.bound = "true";
+}
+
+/* ---------- RECURRING CONFIRM MODAL ---------- */
+let recurringConfirmState = null;
+
+function setupRecurringConfirmModal() {
+  const modal = document.getElementById("recurring-confirm-modal");
+  if (!modal || modal.dataset.bound === "true") return;
+  
+  const closeTargets = modal.querySelectorAll("[data-confirm-close]");
+  const singleBtn = document.getElementById("recurring-confirm-single");
+  const allBtn = document.getElementById("recurring-confirm-all");
+  const messageEl = document.getElementById("recurring-confirm-message");
+
+  const closeModal = () => {
+    modal.classList.remove("is-open");
+    modal.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+    recurringConfirmState = null;
+  };
+
+  closeTargets.forEach((el) => el.addEventListener("click", closeModal));
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closeModal();
+  });
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && modal.classList.contains("is-open")) {
+      closeModal();
+    }
+  });
+
+  if (singleBtn) {
+    singleBtn.addEventListener("click", () => {
+      if (recurringConfirmState && recurringConfirmState.onSingle) {
+        recurringConfirmState.onSingle();
+      }
+      closeModal();
+    });
+  }
+
+  if (allBtn) {
+    allBtn.addEventListener("click", () => {
+      if (recurringConfirmState && recurringConfirmState.onAll) {
+        recurringConfirmState.onAll();
+      }
+      closeModal();
+    });
+  }
+
+  window.openRecurringConfirm = (message, onSingle, onAll) => {
+    if (messageEl) messageEl.textContent = message;
+    recurringConfirmState = { onSingle, onAll };
+    modal.classList.add("is-open");
+    modal.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+  };
 
   modal.dataset.bound = "true";
 }
