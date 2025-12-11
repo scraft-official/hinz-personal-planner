@@ -1,0 +1,29 @@
+{% import "partials/icons.html" as icons %}
+<div class="entry-note-card">
+  <div class="entry-note-header">
+    <div class="entry-note-meta">
+      <div class="entry-note-icon" style="background: {{task.block_type.color}}20; border-color: {{task.block_type.color}};">
+        {{ icons.render(task.block_type.icon, 20, task.block_type.color) }}
+      </div>
+      <div>
+        <div class="entry-note-label">🔄 {{task.title}}</div>
+        <div class="entry-note-sub">Recurring {{task.pattern}} task</div>
+      </div>
+    </div>
+    <button type="button" class="entry-note-close" data-note-close aria-label="Close">×</button>
+  </div>
+  <form class="entry-note-form"
+        hx-post="/recurring-tasks/{{task.id}}/note"
+        hx-target="#schedule"
+        hx-swap="outerHTML">
+    <label>
+      Note (applies to all instances)
+      <textarea name="note" placeholder="Add details about this recurring task...">{{task.note or ''}}</textarea>
+    </label>
+    <input type="hidden" name="week" value="{{request.query_params.get('week', '')}}" />
+    <div class="entry-note-actions">
+      <button type="button" class="btn ghost" data-note-close>Cancel</button>
+      <button type="submit" class="btn">Save note</button>
+    </div>
+  </form>
+</div>

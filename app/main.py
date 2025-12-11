@@ -8,7 +8,7 @@ from fastapi.templating import Jinja2Templates
 from sqlmodel import Session, select
 
 from .db import get_session, init_db, seed_defaults, ensure_quick_block
-from .models import BlockType, ScheduleEntry
+from .models import BlockType, ScheduleEntry, RecurringTask, RecurringException
 
 app = FastAPI(title="Planner")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -74,6 +74,93 @@ def get_quick_block_type(session: Session) -> BlockType:
     return ensure_quick_block(session)
 
 
+def get_recurring_instances_for_week(session: Session, week_start: date) -> list[dict]:
+    """Generate virtual entries for recurring tasks that fall within the given week."""
+    week_end = week_start + timedelta(days=6)
+    
+    # Get all active recurring tasks
+    recurring_tasks = session.exec(
+        select(RecurringTask).where(
+            RecurringTask.start_date <= week_end,
+            (RecurringTask.end_date == None) | (RecurringTask.end_date >= week_start)
+        )
+    ).all()
+    
+    instances = []
+    
+    for task in recurring_tasks:
+        # Get exceptions for this task in this week
+        exceptions = session.exec(
+            select(RecurringException).where(
+                RecurringException.recurring_task_id == task.id,
+                RecurringException.exception_date >= week_start,
+                RecurringException.exception_date <= week_end,
+            )
+        ).all()
+        exception_map = {ex.exception_date: ex for ex in exceptions}
+        
+        # Generate instances for each day in the week
+        for day_offset in range(7):
+            current_date = week_start + timedelta(days=day_offset)
+            
+            # Skip if before task start date
+            if current_date < task.start_date:
+                continue
+            # Skip if after task end date
+            if task.end_date and current_date > task.end_date:
+                continue
+            
+            # Check if this date matches the recurrence pattern
+            matches = False
+            if task.pattern == "daily":
+                days_since_start = (current_date - task.start_date).days
+                matches = (days_since_start % task.interval) == 0
+            elif task.pattern == "weekly":
+                if task.day_of_week is not None and current_date.weekday() == task.day_of_week:
+                    weeks_since_start = (current_date - task.start_date).days // 7
+                    matches = (weeks_since_start % task.interval) == 0
+            elif task.pattern == "monthly":
+                if task.day_of_month is not None and current_date.day == task.day_of_month:
+                    months_since_start = (current_date.year - task.start_date.year) * 12 + (current_date.month - task.start_date.month)
+                    matches = (months_since_start % task.interval) == 0
+            
+            if not matches:
+                continue
+            
+            # Check for exceptions
+            exception = exception_map.get(current_date)
+            if exception and exception.exception_type == "deleted":
+                continue  # This instance was deleted
+            
+            # Get the day name
+            day_name = DAY_ORDER[current_date.weekday()]
+            start_minute = task.start_minute
+            duration = task.duration_minutes
+            
+            # Apply modifications if this instance was modified
+            if exception and exception.exception_type == "modified":
+                if exception.new_day:
+                    day_name = exception.new_day
+                if exception.new_start_minute is not None:
+                    start_minute = exception.new_start_minute
+                if exception.new_duration_minutes is not None:
+                    duration = exception.new_duration_minutes
+            
+            instances.append({
+                "recurring_task_id": task.id,
+                "instance_date": current_date,
+                "title": task.title,
+                "note": task.note,
+                "day": day_name,
+                "start_minute": start_minute,
+                "duration_minutes": duration,
+                "block_type": task.block_type,
+                "is_recurring": True,
+            })
+    
+    return instances
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
@@ -89,11 +176,18 @@ def _schedule_data(session: Session, week_start: date):
     entries = session.exec(
         select(ScheduleEntry).where(ScheduleEntry.week_start == week_start)
     ).all()
-    entries_by_day: dict[str, list[ScheduleEntry]] = {d: [] for d in DAY_ORDER}
+    entries_by_day: dict[str, list] = {d: [] for d in DAY_ORDER}
     for entry in entries:
         entries_by_day.setdefault(entry.day, []).append(entry)
+    
+    # Add recurring task instances
+    recurring_instances = get_recurring_instances_for_week(session, week_start)
+    for instance in recurring_instances:
+        entries_by_day.setdefault(instance["day"], []).append(instance)
+    
+    # Sort all entries by start_minute
     for day_entries in entries_by_day.values():
-        day_entries.sort(key=lambda e: e.start_minute)
+        day_entries.sort(key=lambda e: e.start_minute if hasattr(e, 'start_minute') else e["start_minute"])
     
     week_dates = get_week_dates(week_start)
     
@@ -422,3 +516,268 @@ def delete_entry(
     if request.headers.get("HX-Request"):
         return templates.TemplateResponse("partials/schedule.html", ctx)
     return templates.TemplateResponse("index.html", ctx)
+
+
+# ============== RECURRING TASKS ==============
+
+@app.post("/recurring-tasks", response_class=HTMLResponse)
+def create_recurring_task(
+    request: Request,
+    title: Annotated[str, Form(...)],
+    block_type_id: Annotated[int, Form(...)],
+    pattern: Annotated[str, Form(...)],
+    interval: Annotated[int, Form(...)],
+    start_time: Annotated[str, Form(...)],
+    duration_minutes: Annotated[int, Form(...)],
+    day_of_week: Annotated[int | None, Form(...)] = None,
+    day_of_month: Annotated[int | None, Form(...)] = None,
+    start_date: Annotated[str | None, Form(...)] = None,
+    end_date: Annotated[str | None, Form(...)] = None,
+    note: Annotated[str | None, Form(...)] = None,
+    week: Annotated[str | None, Form(...)] = None,
+    session: Session = Depends(get_session),
+):
+    clean_title = title.strip()
+    if not clean_title:
+        raise HTTPException(status_code=400, detail="Title required")
+    if pattern not in ("daily", "weekly", "monthly"):
+        raise HTTPException(status_code=400, detail="Invalid pattern")
+    if interval < 1:
+        raise HTTPException(status_code=400, detail="Interval must be >= 1")
+    
+    try:
+        t = datetime.strptime(start_time, "%H:%M").time()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid time") from exc
+    
+    start_minute = t.hour * 60 + t.minute
+    if start_minute < DAY_START_MINUTE or start_minute > DAY_END_MINUTE:
+        raise HTTPException(status_code=400, detail="Time outside day bounds")
+    
+    block = session.get(BlockType, block_type_id)
+    if not block:
+        raise HTTPException(status_code=404, detail="Block type not found")
+    
+    try:
+        task_start_date = date.fromisoformat(start_date) if start_date else date.today()
+    except ValueError:
+        task_start_date = date.today()
+    
+    task_end_date = None
+    if end_date:
+        try:
+            task_end_date = date.fromisoformat(end_date)
+        except ValueError:
+            pass
+    
+    task = RecurringTask(
+        title=clean_title,
+        note=(note or "").strip() or None,
+        block_type_id=block_type_id,
+        pattern=pattern,
+        interval=interval,
+        day_of_week=day_of_week,
+        day_of_month=day_of_month,
+        start_minute=start_minute,
+        duration_minutes=duration_minutes,
+        start_date=task_start_date,
+        end_date=task_end_date,
+    )
+    session.add(task)
+    session.commit()
+    
+    try:
+        week_start = date.fromisoformat(week) if week else get_week_start(date.today())
+        week_start = get_week_start(week_start)
+    except ValueError:
+        week_start = get_week_start(date.today())
+    
+    ctx = _schedule_data(session, week_start)
+    ctx["request"] = request
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse("partials/schedule.html", ctx)
+    return templates.TemplateResponse("index.html", ctx)
+
+
+@app.delete("/recurring-tasks/{task_id}", response_class=HTMLResponse)
+def delete_recurring_task(
+    request: Request,
+    task_id: int,
+    week: str | None = Query(default=None),
+    session: Session = Depends(get_session),
+):
+    """Delete entire recurring task and all its exceptions."""
+    task = session.get(RecurringTask, task_id)
+    if task:
+        # Delete all exceptions first
+        exceptions = session.exec(
+            select(RecurringException).where(RecurringException.recurring_task_id == task_id)
+        ).all()
+        for ex in exceptions:
+            session.delete(ex)
+        session.delete(task)
+        session.commit()
+    
+    try:
+        week_start = date.fromisoformat(week) if week else get_week_start(date.today())
+        week_start = get_week_start(week_start)
+    except ValueError:
+        week_start = get_week_start(date.today())
+    
+    ctx = _schedule_data(session, week_start)
+    ctx["request"] = request
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse("partials/schedule.html", ctx)
+    return templates.TemplateResponse("index.html", ctx)
+
+
+@app.post("/recurring-tasks/{task_id}/exception", response_class=HTMLResponse)
+def create_recurring_exception(
+    request: Request,
+    task_id: int,
+    exception_date: Annotated[str, Form(...)],
+    exception_type: Annotated[str, Form(...)],
+    new_day: Annotated[str | None, Form(...)] = None,
+    new_start_minute: Annotated[int | None, Form(...)] = None,
+    new_duration_minutes: Annotated[int | None, Form(...)] = None,
+    week: Annotated[str | None, Form(...)] = None,
+    session: Session = Depends(get_session),
+):
+    """Create an exception for a specific instance of a recurring task."""
+    task = session.get(RecurringTask, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Recurring task not found")
+    
+    if exception_type not in ("deleted", "modified"):
+        raise HTTPException(status_code=400, detail="Invalid exception type")
+    
+    try:
+        exc_date = date.fromisoformat(exception_date)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid date") from exc
+    
+    # Check if exception already exists
+    existing = session.exec(
+        select(RecurringException).where(
+            RecurringException.recurring_task_id == task_id,
+            RecurringException.exception_date == exc_date,
+        )
+    ).first()
+    
+    if existing:
+        # Update existing exception
+        existing.exception_type = exception_type
+        existing.new_day = new_day
+        existing.new_start_minute = new_start_minute
+        existing.new_duration_minutes = new_duration_minutes
+        session.add(existing)
+    else:
+        # Create new exception
+        exception = RecurringException(
+            recurring_task_id=task_id,
+            exception_date=exc_date,
+            exception_type=exception_type,
+            new_day=new_day,
+            new_start_minute=new_start_minute,
+            new_duration_minutes=new_duration_minutes,
+        )
+        session.add(exception)
+    
+    session.commit()
+    
+    try:
+        week_start = date.fromisoformat(week) if week else get_week_start(date.today())
+        week_start = get_week_start(week_start)
+    except ValueError:
+        week_start = get_week_start(date.today())
+    
+    ctx = _schedule_data(session, week_start)
+    ctx["request"] = request
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse("partials/schedule.html", ctx)
+    return templates.TemplateResponse("index.html", ctx)
+
+
+@app.patch("/recurring-tasks/{task_id}/move-all", response_class=HTMLResponse)
+def move_all_recurring_instances(
+    request: Request,
+    task_id: int,
+    day_of_week: Annotated[int, Form(...)],
+    start_minute: Annotated[int, Form(...)],
+    duration_minutes: Annotated[int, Form(...)],
+    week: Annotated[str | None, Form(...)] = None,
+    session: Session = Depends(get_session),
+):
+    """Move all instances of a recurring task to a new day/time."""
+    task = session.get(RecurringTask, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Recurring task not found")
+    
+    # Clamp values
+    start_clamped = max(DAY_START_MINUTE, min(start_minute, DAY_END_MINUTE))
+    duration_clamped = max(SLOT_MINUTES, min(duration_minutes, (DAY_END_MINUTE - DAY_START_MINUTE)))
+    if start_clamped + duration_clamped > DAY_END_MINUTE:
+        start_clamped = DAY_END_MINUTE - duration_clamped
+    
+    task.day_of_week = day_of_week
+    task.start_minute = start_clamped
+    task.duration_minutes = duration_clamped
+    session.add(task)
+    session.commit()
+    
+    try:
+        week_start = date.fromisoformat(week) if week else get_week_start(date.today())
+        week_start = get_week_start(week_start)
+    except ValueError:
+        week_start = get_week_start(date.today())
+    
+    ctx = _schedule_data(session, week_start)
+    ctx["request"] = request
+    if request.headers.get("HX-Request"):
+        return templates.TemplateResponse("partials/schedule.html", ctx)
+    return templates.TemplateResponse("index.html", ctx)
+
+
+@app.get("/recurring-tasks/{task_id}/note", response_class=HTMLResponse)
+def get_recurring_task_note(
+    request: Request,
+    task_id: int,
+    instance_date: str | None = Query(default=None),
+    session: Session = Depends(get_session),
+):
+    """Get note form for recurring task."""
+    task = session.get(RecurringTask, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Recurring task not found")
+    ctx = {"request": request, "task": task, "instance_date": instance_date, "is_recurring": True}
+    return templates.TemplateResponse("partials/recurring_note_form.html", ctx)
+
+
+@app.post("/recurring-tasks/{task_id}/note", response_class=HTMLResponse)
+def save_recurring_task_note(
+    request: Request,
+    task_id: int,
+    note: str | None = Form(default=""),
+    week: str | None = Form(default=None),
+    session: Session = Depends(get_session),
+):
+    """Save note for recurring task (affects all instances)."""
+    task = session.get(RecurringTask, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Recurring task not found")
+    
+    task.note = (note or "").strip() or None
+    session.add(task)
+    session.commit()
+    
+    try:
+        week_start = date.fromisoformat(week) if week else get_week_start(date.today())
+        week_start = get_week_start(week_start)
+    except ValueError:
+        week_start = get_week_start(date.today())
+    
+    ctx = _schedule_data(session, week_start)
+    ctx["request"] = request
+    response = templates.TemplateResponse("partials/schedule.html", ctx)
+    response.headers["HX-Trigger"] = "entry-note-saved"
+    return response

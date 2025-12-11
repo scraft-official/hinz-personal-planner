@@ -13,6 +13,7 @@ class BlockType(SQLModel, table=True):
     is_quick_template: bool = Field(default=False)
 
     entries: list["ScheduleEntry"] = Relationship(back_populates="block_type")
+    recurring_tasks: list["RecurringTask"] = Relationship(back_populates="block_type")
 
 
 class ScheduleEntry(SQLModel, table=True):
@@ -28,3 +29,53 @@ class ScheduleEntry(SQLModel, table=True):
     is_quick: bool = Field(default=False)
 
     block_type: Optional[BlockType] = Relationship(back_populates="entries")
+
+
+class RecurringTask(SQLModel, table=True):
+    """A recurring task template that generates instances on matching days."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    title: str = Field(max_length=80)
+    note: Optional[str] = Field(default=None, max_length=255)
+    block_type_id: int = Field(foreign_key="blocktype.id")
+    
+    # Recurrence pattern: "daily", "weekly", "monthly"
+    pattern: str = Field(default="weekly", max_length=16)
+    # Interval: every X days/weeks/months
+    interval: int = Field(default=1, ge=1)
+    # Day of week for weekly (0=Monday..6=Sunday), or day of month for monthly (1-31)
+    day_of_week: Optional[int] = Field(default=None)
+    day_of_month: Optional[int] = Field(default=None)
+    
+    start_minute: int = Field(ge=0, le=24 * 60)
+    duration_minutes: int = Field(default=60, ge=15, le=24 * 60)
+    
+    # Start date for the recurrence (first occurrence)
+    start_date: date = Field(index=True)
+    # Optional end date
+    end_date: Optional[date] = Field(default=None)
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    block_type: Optional[BlockType] = Relationship(back_populates="recurring_tasks")
+    exceptions: list["RecurringException"] = Relationship(back_populates="recurring_task")
+
+
+class RecurringException(SQLModel, table=True):
+    """Tracks exceptions (deletions or modifications) to recurring task instances."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    recurring_task_id: int = Field(foreign_key="recurringtask.id", index=True)
+    
+    # The specific date this exception applies to
+    exception_date: date = Field(index=True)
+    
+    # Type: "deleted" = instance removed, "modified" = instance moved/changed
+    exception_type: str = Field(default="deleted", max_length=16)
+    
+    # For modified instances, store the new values (null = use original)
+    new_day: Optional[str] = Field(default=None, max_length=16)
+    new_start_minute: Optional[int] = Field(default=None)
+    new_duration_minutes: Optional[int] = Field(default=None)
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    recurring_task: Optional[RecurringTask] = Relationship(back_populates="exceptions")

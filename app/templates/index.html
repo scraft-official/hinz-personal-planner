@@ -13,6 +13,7 @@
         {% endfor %}
       </select>
       <button type="button" class="btn quick-task-btn" id="quick-task-btn">+ Quick task</button>
+      <button type="button" class="btn recurring-task-btn" id="recurring-task-btn">🔄 Recurring</button>
     </div>
     <div class="palette-scroll">
       {% include "partials/palette.html" %}
@@ -133,6 +134,111 @@
         <button type="submit" class="btn">Create block</button>
       </div>
     </form>
+  </div>
+</div>
+
+<div class="recurring-task-modal" id="recurring-task-modal" aria-hidden="true">
+  <div class="recurring-task-overlay" data-recurring-close></div>
+  <div class="recurring-task-card" role="dialog" aria-modal="true" aria-labelledby="recurring-task-title">
+    <div class="recurring-task-header">
+      <div>
+        <div class="recurring-task-eyebrow">Repeat schedule</div>
+        <h2 id="recurring-task-title">Create recurring task</h2>
+      </div>
+      <button type="button" class="recurring-task-close" data-recurring-close aria-label="Close">×</button>
+    </div>
+    <form id="recurring-task-form"
+          class="recurring-task-form"
+          hx-post="/recurring-tasks"
+          hx-target="#schedule"
+          hx-swap="outerHTML">
+      <label>
+        Task label
+        <input type="text" name="title" maxlength="80" placeholder="What repeats?" required />
+      </label>
+      <label>
+        Block type
+        <select name="block_type_id" required>
+          {% for block in blocks %}
+            <option value="{{block.id}}">{{block.name}}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="recurring-task-grid">
+        <label>
+          Repeats
+          <select name="pattern" id="recurring-pattern" required>
+            <option value="daily">Daily</option>
+            <option value="weekly" selected>Weekly</option>
+            <option value="monthly">Monthly</option>
+          </select>
+        </label>
+        <label>
+          Every
+          <input type="number" name="interval" value="1" min="1" max="52" required />
+        </label>
+      </div>
+      <div class="recurring-task-grid" id="recurring-day-picker">
+        <label id="day-of-week-label">
+          Day of week
+          <select name="day_of_week">
+            {% for i, d in [(0, "Monday"), (1, "Tuesday"), (2, "Wednesday"), (3, "Thursday"), (4, "Friday"), (5, "Saturday"), (6, "Sunday")] %}
+              <option value="{{i}}">{{d}}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label id="day-of-month-label" style="display: none;">
+          Day of month
+          <input type="number" name="day_of_month" value="1" min="1" max="31" />
+        </label>
+      </div>
+      <div class="recurring-task-grid">
+        <label>
+          Start time
+          <input type="time" name="start_time" value="09:00" step="900" required />
+        </label>
+        <label>
+          Duration
+          <select name="duration_minutes" required>
+            {% for d in duration_options %}
+              <option value="{{d}}" {% if d == 60 %}selected{% endif %}>{% if d >= 60 %}{{"%d:%02dh" % (d//60, d%60)}}{% else %}{{d}}m{% endif %}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div class="recurring-task-grid">
+        <label>
+          Starts on
+          <input type="date" name="start_date" value="{{week_start}}" />
+        </label>
+        <label>
+          Ends on <span class="hint">(optional)</span>
+          <input type="date" name="end_date" />
+        </label>
+      </div>
+      <label>
+        Note <span class="hint">(optional)</span>
+        <input type="text" name="note" maxlength="255" placeholder="Additional details..." />
+      </label>
+      <input type="hidden" name="week" value="{{week_start}}" />
+      <div class="recurring-task-actions">
+        <button type="button" class="btn ghost" data-recurring-close>Cancel</button>
+        <button type="submit" class="btn">Create recurring task</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="recurring-confirm-modal" id="recurring-confirm-modal" aria-hidden="true">
+  <div class="recurring-confirm-overlay" data-confirm-close></div>
+  <div class="recurring-confirm-card" role="alertdialog" aria-modal="true" aria-labelledby="recurring-confirm-title">
+    <h3 id="recurring-confirm-title">Recurring Task</h3>
+    <p id="recurring-confirm-message">What would you like to do?</p>
+    <div class="recurring-confirm-actions">
+      <button type="button" class="btn ghost" data-confirm-close>Cancel</button>
+      <button type="button" class="btn" id="recurring-confirm-single">This instance only</button>
+      <button type="button" class="btn" id="recurring-confirm-all">All instances</button>
+    </div>
   </div>
 </div>
 {% endblock %}

@@ -14,7 +14,7 @@ engine = create_engine(DATABASE_URL, connect_args=connect_args)
 
 
 def init_db() -> None:
-    from .models import BlockType, ScheduleEntry  # noqa: F401
+    from .models import BlockType, ScheduleEntry, RecurringTask, RecurringException  # noqa: F401
 
     SQLModel.metadata.create_all(engine)
     apply_schema_patches()
