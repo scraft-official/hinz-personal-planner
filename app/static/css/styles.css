@@ -399,7 +399,13 @@ a { color: inherit; }
     min-width: 700px;
     width: max-content;
   }
-  .time-col { padding-top: 42px; }
+  .time-col { 
+    padding-top: 42px; 
+    position: sticky;
+    left: 0;
+    z-index: 10;
+    background: var(--panel);
+  }
   .time-label { font-size: 9px; height: 48px; margin-left: 0; padding-right: 6px; }
   .periods { display: none; }
   
@@ -469,6 +475,12 @@ a { color: inherit; }
     grid-template-columns: 45px 1fr;
     min-width: 650px;
     width: max-content;
+  }
+  .time-col {
+    position: sticky;
+    left: 0;
+    z-index: 10;
+    background: var(--panel);
   }
   .time-label { font-size: 8px; height: 48px; margin-left: 0; padding-right: 4px; }
   .grid-cols { min-width: 605px; }
