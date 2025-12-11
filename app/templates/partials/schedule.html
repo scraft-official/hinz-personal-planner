@@ -43,38 +43,67 @@
           <div class="day-period act" style="top: {{act_top}}px; height: {{act_height}}px;"></div>
           <div class="day-period night" style="top: {{night_top}}px; height: {{night_height}}px;"></div>
           {% for entry in entries_by_day.get(day, []) %}
-            {% set top = ((entry.start_minute - day_start) / slot_minutes) * slot_height %}
-            {% set height = (entry.duration_minutes / slot_minutes) * slot_height %}
-            {% set end_minute = entry.start_minute + entry.duration_minutes %}
-            {% set start_time = "%02d:%02d" % (entry.start_minute//60, entry.start_minute%60) %}
+            {% if entry is mapping %}
+              {# This is a recurring task instance (dict) #}
+              {% set is_recurring = true %}
+              {% set entry_start = entry.start_minute %}
+              {% set entry_duration = entry.duration_minutes %}
+              {% set entry_day = entry.day %}
+              {% set entry_color = entry.block_type.color %}
+              {% set entry_icon = entry.block_type.icon %}
+              {% set display_name = entry.title %}
+              {% set entry_note = entry.note %}
+              {% set recurring_task_id = entry.recurring_task_id %}
+              {% set instance_date = entry.instance_date %}
+            {% else %}
+              {# This is a regular ScheduleEntry #}
+              {% set is_recurring = false %}
+              {% set entry_start = entry.start_minute %}
+              {% set entry_duration = entry.duration_minutes %}
+              {% set entry_day = entry.day %}
+              {% set entry_color = entry.block_type.color %}
+              {% set entry_icon = entry.block_type.icon %}
+              {% set display_name = entry.custom_title or entry.block_type.name %}
+              {% set entry_note = entry.note %}
+              {% set recurring_task_id = none %}
+              {% set instance_date = none %}
+            {% endif %}
+            {% set top = ((entry_start - day_start) / slot_minutes) * slot_height %}
+            {% set height = (entry_duration / slot_minutes) * slot_height %}
+            {% set end_minute = entry_start + entry_duration %}
+            {% set start_time = "%02d:%02d" % (entry_start//60, entry_start%60) %}
             {% set end_time = "%02d:%02d" % (end_minute//60, end_minute%60) %}
-            {% set dur_h = entry.duration_minutes // 60 %}
-            {% set dur_m = entry.duration_minutes % 60 %}
+            {% set dur_h = entry_duration // 60 %}
+            {% set dur_m = entry_duration % 60 %}
             {% set dur_str = ("%dh %02dm" % (dur_h, dur_m)) if dur_h else ("%dm" % dur_m) %}
-            {% set display_name = entry.custom_title or entry.block_type.name %}
             {% set tooltip = display_name ~ " · " ~ start_time ~ " – " ~ end_time ~ " (" ~ dur_str ~ ")" %}
-              {% if entry.note %}
-                {% set tooltip = tooltip ~ "\n" ~ entry.note %}
-              {% endif %}
-            <div class="entry {% if height < 36 %}compact{% endif %}" 
-                 data-entry-id="{{entry.id}}" 
-                 data-start-minute="{{entry.start_minute}}" 
+            {% if is_recurring %}{% set tooltip = "🔄 " ~ tooltip %}{% endif %}
+            {% if entry_note %}{% set tooltip = tooltip ~ "\n" ~ entry_note %}{% endif %}
+            <div class="entry {% if height < 36 %}compact{% endif %} {% if is_recurring %}recurring{% endif %}" 
+                 {% if is_recurring %}
+                   data-recurring-task-id="{{recurring_task_id}}"
+                   data-instance-date="{{instance_date}}"
+                 {% else %}
+                   data-entry-id="{{entry.id}}"
+                 {% endif %}
+                 data-start-minute="{{entry_start}}" 
                  data-end-minute="{{end_minute}}"
-                 data-duration="{{entry.duration_minutes}}" 
-                 data-day="{{entry.day}}"
-                 data-color="{{entry.block_type.color}}"
-                   data-computed-top="{{top}}"
-                   data-tooltip="{{tooltip}}"
-                   style="top: {{top|int}}px; height: {{height|int}}px; border-color: {{entry.block_type.color}}; background: {{entry.block_type.color}}30;"
-                   aria-label="{{tooltip}}"
-                   tabindex="0">
-              <div class="entry-bar" style="background: {{entry.block_type.color}};"></div>
+                 data-duration="{{entry_duration}}" 
+                 data-day="{{entry_day}}"
+                 data-color="{{entry_color}}"
+                 data-computed-top="{{top}}"
+                 data-tooltip="{{tooltip}}"
+                 data-is-recurring="{{is_recurring|lower}}"
+                 style="top: {{top|int}}px; height: {{height|int}}px; border-color: {{entry_color}}; background: {{entry_color}}30;"
+                 aria-label="{{tooltip}}"
+                 tabindex="0">
+              <div class="entry-bar {% if is_recurring %}striped{% endif %}" style="background: {{entry_color}};"></div>
               <div class="entry-content">
-                <div class="entry-title">{{ icons.render(entry.block_type.icon, 12, entry.block_type.color) }} <span class="entry-title-text" data-entry-id="{{entry.id}}">{{display_name}}</span></div>
+                <div class="entry-title">{{ icons.render(entry_icon, 12, entry_color) }} <span class="entry-title-text" {% if is_recurring %}data-recurring-task-id="{{recurring_task_id}}" data-instance-date="{{instance_date}}"{% else %}data-entry-id="{{entry.id}}"{% endif %}>{{display_name}}</span></div>
                 <div class="entry-meta">{{start_time}} – {{end_time}}</div>
-                {% if entry.note %}<div class="entry-note">{{entry.note}}</div>{% endif %}
+                {% if entry_note %}<div class="entry-note">{{entry_note}}</div>{% endif %}
               </div>
-              <button type="button" class="entry-delete-btn" data-entry-id="{{entry.id}}" aria-label="Delete">×</button>
+              <button type="button" class="entry-delete-btn" {% if is_recurring %}data-recurring-task-id="{{recurring_task_id}}" data-instance-date="{{instance_date}}"{% else %}data-entry-id="{{entry.id}}"{% endif %} aria-label="Delete">×</button>
               <div class="entry-resize-handle" title="Drag to resize"></div>
             </div>
           {% endfor %}

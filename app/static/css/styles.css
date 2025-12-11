@@ -149,6 +149,36 @@ a { color: inherit; }
 .add-block-form input[type="color"] { width: 60px; height: 36px; padding: 4px; cursor: pointer; }
 .add-block-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
 
+/* Recurring task button */
+.recurring-task-btn { background: #6366f1; }
+.recurring-task-btn:hover { filter: none; background: #4f46e5; }
+
+/* Recurring task modal */
+.recurring-task-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 50; }
+.recurring-task-modal.is-open { display: flex; }
+.recurring-task-overlay { position: absolute; inset: 0; background: var(--modal-overlay); backdrop-filter: blur(2px); }
+.recurring-task-card { position: relative; width: min(480px, 92vw); max-height: 90vh; overflow-y: auto; background: var(--panel); border-radius: 14px; padding: 24px; box-shadow: 0 30px 80px var(--card-shadow); border: 1px solid var(--border); z-index: 1; display: grid; gap: 16px; }
+.recurring-task-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.recurring-task-eyebrow { text-transform: uppercase; font-size: 10px; letter-spacing: 0.2em; color: var(--muted); margin-bottom: 4px; }
+.recurring-task-header h2 { margin: 0; font-size: 20px; }
+.recurring-task-close { border: none; background: var(--bg); width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 16px; line-height: 1; color: var(--text); }
+.recurring-task-close:hover { background: var(--border); }
+.recurring-task-form { display: grid; gap: 12px; }
+.recurring-task-form label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.recurring-task-form input,
+.recurring-task-form select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; background: var(--input-bg); color: var(--text); }
+.recurring-task-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.recurring-task-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 4px; }
+
+/* Recurring confirmation dialog */
+.recurring-confirm-modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 60; }
+.recurring-confirm-modal.is-open { display: flex; }
+.recurring-confirm-overlay { position: absolute; inset: 0; background: var(--modal-overlay); backdrop-filter: blur(2px); }
+.recurring-confirm-card { position: relative; width: min(400px, 90vw); background: var(--panel); border-radius: 14px; padding: 24px; box-shadow: 0 30px 80px var(--card-shadow); border: 1px solid var(--border); z-index: 1; display: grid; gap: 16px; text-align: center; }
+.recurring-confirm-card h3 { margin: 0; font-size: 18px; }
+.recurring-confirm-card p { margin: 0; color: var(--muted); font-size: 14px; }
+.recurring-confirm-actions { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+
 /* Week navigation */
 .week-nav { display: flex; align-items: center; gap: 8px; }
 .week-btn { padding: 6px 12px; border: 1px solid var(--border); background: var(--panel); border-radius: 6px; cursor: pointer; font-size: 13px; transition: background 0.15s; color: var(--text); }
@@ -219,6 +249,16 @@ a { color: inherit; }
   z-index: 1; 
 }
 .entry-bar { width: 4px; min-height: 100%; border-radius: 2px; flex-shrink: 0; align-self: stretch; }
+.entry-bar.striped { 
+  background: repeating-linear-gradient(
+    -45deg,
+    currentColor,
+    currentColor 2px,
+    transparent 2px,
+    transparent 4px
+  ) !important;
+}
+.entry.recurring { border-style: dashed; }
 .entry-content { flex: 1; min-width: 0; overflow: hidden; }
 .entry-title { display: flex; align-items: center; gap: 4px; font-weight: 700; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .entry-title-text { cursor: pointer; border-bottom: 1px solid transparent; transition: border-color 0.15s; }
