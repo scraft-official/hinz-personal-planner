@@ -80,16 +80,6 @@ Open http://127.0.0.1:8000 in your browser.
 
 Contributions and bug reports are welcome. Please open issues describing the problem or feature request.
 
-## License
-
-This repository does not include a license file by default. Add a `LICENSE` if you intend to open-source it with a specific license.
-
----
-
-If you'd like, I can also: add a `requirements.txt`, include example seed data, or add a Dockerfile for local development.# Planner (desktop-first prototype)
-
-Python FastAPI + HTMX + SQLModel + SQLite. Desktop-first weekly planner that mirrors the magnetic block board.
-
 ## Run locally
 
 ```bash
