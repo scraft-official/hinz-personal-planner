@@ -27,6 +27,7 @@ function init() {
   setupAddBlockModal();
   setupRecurringTaskModal();
   setupRecurringConfirmModal();
+  setupConfirmDialog();
   setupThemeToggle();
 }
 
@@ -101,25 +102,31 @@ function setupPalette() {
       e.preventDefault();
       e.stopPropagation();
       const blockId = deleteBtn.dataset.blockId;
-      if (blockId && confirm("Delete this block type? All entries using it will also be deleted.")) {
-        fetch(`/blocks/${blockId}`, {
-          method: "DELETE",
-          headers: { "HX-Request": "true" },
-        })
-          .then((r) => r.text())
-          .then((html) => {
-            const current = document.getElementById("palette");
-            if (current) {
-              const wrapper = document.createElement("div");
-              wrapper.innerHTML = html;
-              const next = wrapper.querySelector("#palette") || wrapper.firstElementChild;
-              if (next) {
-                current.replaceWith(next);
-                setupPalette();
-              }
-            }
-          })
-          .catch(console.error);
+      if (blockId) {
+        window.openConfirmDialog(
+          "Delete Block Type",
+          "Delete this block type? All entries using it will also be deleted.",
+          () => {
+            fetch(`/blocks/${blockId}`, {
+              method: "DELETE",
+              headers: { "HX-Request": "true" },
+            })
+              .then((r) => r.text())
+              .then((html) => {
+                const current = document.getElementById("palette");
+                if (current) {
+                  const wrapper = document.createElement("div");
+                  wrapper.innerHTML = html;
+                  const next = wrapper.querySelector("#palette") || wrapper.firstElementChild;
+                  if (next) {
+                    current.replaceWith(next);
+                    setupPalette();
+                  }
+                }
+              })
+              .catch(console.error);
+          }
+        );
       }
       return;
     }
@@ -359,14 +366,27 @@ function startResize(event, entry, meta) {
 }
 
 /* ---------- COLLISION DETECTION ---------- */
-function getEntriesInCol(col, excludeEntryId) {
+function getEntriesInCol(col, excludeInfo) {
   const entries = col.querySelectorAll(".entry");
   const result = [];
   entries.forEach((entry) => {
     const id = entry.dataset.entryId;
-    if (excludeEntryId && id === String(excludeEntryId)) return;
+    const recurringTaskId = entry.dataset.recurringTaskId;
+    const instanceDate = entry.dataset.instanceDate;
+    
+    // Exclude the entry being dragged
+    if (excludeInfo) {
+      if (excludeInfo.entryId && id === String(excludeInfo.entryId)) return;
+      // For recurring tasks, exclude by recurring task ID and instance date
+      if (excludeInfo.recurringTaskId && 
+          recurringTaskId === String(excludeInfo.recurringTaskId) && 
+          instanceDate === excludeInfo.instanceDate) return;
+    }
+    
     result.push({
       id,
+      recurringTaskId,
+      instanceDate,
       start: parseInt(entry.dataset.startMinute, 10),
       end: parseInt(entry.dataset.endMinute, 10),
     });
@@ -431,8 +451,15 @@ function onDragMove(event) {
   const endMinute = startMinute + duration;
 
   // Check for collision
-  const excludeId = mode === "move" || mode === "resize" ? ds.id : null;
-  const existingEntries = getEntriesInCol(col, excludeId);
+  let excludeInfo = null;
+  if (mode === "move" || mode === "resize") {
+    excludeInfo = {
+      entryId: ds.id,
+      recurringTaskId: ds.recurringTaskId,
+      instanceDate: ds.instanceDate,
+    };
+  }
+  const existingEntries = getEntriesInCol(col, excludeInfo);
   const collision = hasCollision(existingEntries, startMinute, endMinute);
 
   if (collision) {
@@ -686,13 +713,30 @@ function setupQuickTaskModal() {
 
   // Listen for successful HTMX request from the quick task form
   if (form) {
+    // Get or create error message element
+    let errorEl = form.querySelector(".quick-task-error");
+    if (!errorEl) {
+      errorEl = document.createElement("div");
+      errorEl.className = "quick-task-error";
+      form.insertBefore(errorEl, form.firstChild);
+    }
+    
     form.addEventListener("htmx:afterRequest", (evt) => {
       if (evt.detail.successful) {
+        errorEl.textContent = "";
+        errorEl.style.display = "none";
         handleSuccess();
       } else if (evt.detail.xhr && evt.detail.xhr.status === 409) {
         // Collision detected - time slot occupied
-        alert("This time slot is already occupied. Please choose a different time.");
+        errorEl.textContent = "This time slot is already occupied. Please choose a different time.";
+        errorEl.style.display = "block";
       }
+    });
+    
+    // Clear error when form inputs change
+    form.addEventListener("input", () => {
+      errorEl.textContent = "";
+      errorEl.style.display = "none";
     });
   }
 
@@ -773,40 +817,75 @@ function setupEntryNoteModal() {
     const deleteEntryBtn = e.target.closest("[data-delete-entry]");
     if (deleteEntryBtn) {
       const entryId = deleteEntryBtn.dataset.deleteEntry;
-      if (entryId && confirm("Delete this entry?")) {
-        const weekStart = getWeekStart();
-        let url = `/entries/${entryId}`;
-        if (weekStart) url += `?week_start=${weekStart}`;
-        fetch(url, {
-          method: "DELETE",
-          headers: { "HX-Request": "true" },
-        })
-          .then((r) => r.text())
-          .then((html) => {
-            replaceScheduleHtml(html);
-            closeModal();
-          })
-          .catch(console.error);
+      if (entryId) {
+        // Use custom confirm dialog
+        window.openConfirmDialog(
+          "Delete Entry",
+          "Are you sure you want to delete this entry?",
+          () => {
+            const weekStart = getWeekStart();
+            let url = `/entries/${entryId}`;
+            if (weekStart) url += `?week_start=${weekStart}`;
+            fetch(url, {
+              method: "DELETE",
+              headers: { "HX-Request": "true" },
+            })
+              .then((r) => r.text())
+              .then((html) => {
+                replaceScheduleHtml(html);
+                closeModal();
+              })
+              .catch(console.error);
+          }
+        );
       }
     }
     // Handle delete recurring task button
     const deleteRecurringBtn = e.target.closest("[data-delete-recurring]");
     if (deleteRecurringBtn) {
       const taskId = deleteRecurringBtn.dataset.deleteRecurring;
-      if (taskId && confirm("Delete all instances of this recurring task?")) {
-        const weekStart = getWeekStart();
-        let url = `/recurring-tasks/${taskId}`;
-        if (weekStart) url += `?week_start=${weekStart}`;
-        fetch(url, {
-          method: "DELETE",
-          headers: { "HX-Request": "true" },
-        })
-          .then((r) => r.text())
-          .then((html) => {
-            replaceScheduleHtml(html);
-            closeModal();
-          })
-          .catch(console.error);
+      const instanceDate = deleteRecurringBtn.dataset.instanceDate;
+      if (taskId) {
+        // Use recurring confirm dialog for delete options
+        window.openRecurringConfirm(
+          "Do you want to delete only this instance or all occurrences?",
+          // Delete single instance
+          () => {
+            const weekStart = getWeekStart();
+            const fd = new FormData();
+            fd.append("exception_date", instanceDate);
+            fd.append("exception_type", "deleted");
+            if (weekStart) fd.append("week", weekStart);
+
+            fetch(`/recurring-tasks/${taskId}/exception`, {
+              method: "POST",
+              headers: { "HX-Request": "true" },
+              body: fd,
+            })
+              .then((r) => r.text())
+              .then((html) => {
+                replaceScheduleHtml(html);
+                closeModal();
+              })
+              .catch(console.error);
+          },
+          // Delete all instances
+          () => {
+            const weekStart = getWeekStart();
+            let url = `/recurring-tasks/${taskId}`;
+            if (weekStart) url += `?week_start=${weekStart}`;
+            fetch(url, {
+              method: "DELETE",
+              headers: { "HX-Request": "true" },
+            })
+              .then((r) => r.text())
+              .then((html) => {
+                replaceScheduleHtml(html);
+                closeModal();
+              })
+              .catch(console.error);
+          }
+        );
       }
     }
   });
@@ -1026,6 +1105,56 @@ function setupRecurringConfirmModal() {
   window.openRecurringConfirm = (message, onSingle, onAll) => {
     if (messageEl) messageEl.textContent = message;
     recurringConfirmState = { onSingle, onAll };
+    modal.classList.add("is-open");
+    modal.setAttribute("aria-hidden", "false");
+    document.body.style.overflow = "hidden";
+  };
+
+  modal.dataset.bound = "true";
+}
+
+/* ---------- GENERIC CONFIRM DIALOG ---------- */
+let confirmDialogState = null;
+
+function setupConfirmDialog() {
+  const modal = document.getElementById("confirm-modal");
+  if (!modal || modal.dataset.bound === "true") return;
+  
+  const closeTargets = modal.querySelectorAll("[data-generic-confirm-close]");
+  const okBtn = document.getElementById("confirm-ok");
+  const titleEl = document.getElementById("confirm-title");
+  const messageEl = document.getElementById("confirm-message");
+
+  const closeModal = () => {
+    modal.classList.remove("is-open");
+    modal.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+    confirmDialogState = null;
+  };
+
+  closeTargets.forEach((el) => el.addEventListener("click", closeModal));
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) closeModal();
+  });
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && modal.classList.contains("is-open")) {
+      closeModal();
+    }
+  });
+
+  if (okBtn) {
+    okBtn.addEventListener("click", () => {
+      if (confirmDialogState && confirmDialogState.onConfirm) {
+        confirmDialogState.onConfirm();
+      }
+      closeModal();
+    });
+  }
+
+  window.openConfirmDialog = (title, message, onConfirm) => {
+    if (titleEl) titleEl.textContent = title;
+    if (messageEl) messageEl.textContent = message;
+    confirmDialogState = { onConfirm };
     modal.classList.add("is-open");
     modal.setAttribute("aria-hidden", "false");
     document.body.style.overflow = "hidden";

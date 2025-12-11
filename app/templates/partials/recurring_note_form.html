@@ -22,7 +22,7 @@
     </label>
     <input type="hidden" name="week" value="{{request.query_params.get('week', '')}}" />
     <div class="entry-note-actions">
-      <button type="button" class="btn ghost danger" data-delete-recurring="{{task.id}}">Delete all</button>
+      <button type="button" class="btn ghost danger" data-delete-recurring="{{task.id}}" data-instance-date="{{instance_date}}">Delete</button>
       <div class="entry-note-actions-right">
         <button type="button" class="btn ghost" data-note-close>Cancel</button>
         <button type="submit" class="btn">Save note</button>
